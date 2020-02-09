@@ -7,6 +7,7 @@ use super::majiang_operation::{MajiangOperation , Action};
 
 pub struct MajiangPlayerState {
     on_hand: HashMap<u8, u8>,
+    group_cards: Option<Vec<Vec<u8>>>,
     pub on_recv_now: Option<u8>,
 }
 
@@ -29,9 +30,22 @@ impl MajiangPlayerState {
         self.on_recv_now = None;
     }
 
+    pub fn execute_op(&mut self, op: &MajiangOperation) {
+        match op.op {
+            Action::CHI => {
+            },
+            Action::PENG => {
+            },
+            Action::GANG => {
+            },
+            _ => ()
+        }
+    }
+
     pub fn new() -> MajiangPlayerState {
         MajiangPlayerState {
             on_hand: HashMap::new(),
+            group_cards: None,
             on_recv_now: None,
         }
     }

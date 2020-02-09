@@ -19,6 +19,8 @@ use majiang_operation::{MajiangOperation, Action};
 pub struct Game {
     players: Vec<Player>,
     state: GameState,
+    other_ops: Vec<Option<Vec<MajiangOperation>>>,
+    recv_other_ops: Vec<Option<MajiangOperation>>,
 }
 
 impl Game {
@@ -27,6 +29,8 @@ impl Game {
         Game {
             players: players,
             state: GameState::new(num),
+            other_ops: Vec::new(),
+            recv_other_ops: Vec::new(),
         }
     }
 
@@ -45,23 +49,24 @@ impl Game {
             let cur_player = self.state.cur_player();
             if let Some(win_op) = self.state.get_player_win_op(cur_player) {
 
-                self.notify_operation(cur_player, vec![win_op]);
+                self.notify_operation(cur_player, &vec![win_op]);
             }
             
-            if let Some(player_op) = self.recv_player_operation(cur_player) {
+            if let Some(player_op) = self.mock_recv_player_pop(cur_player) {
                 match player_op.op {
                     Action::POP => {
                         self.state.do_pop_card(cur_player, &player_op);
                         // 3. get operation of next player for this pop card
+                        let mut other_ops: Vec<Option<Vec<MajiangOperation>>> =  vec![None, None, None, None];
                         for i in 1..4 {
-                            if i == cur_player {
-                                continue;
-                            }
-                            if let Some(ops) = self.state.get_player_rsp_for_pop_card((cur_player + i) % 4) {
-                                self.notify_operation(i, ops);
+                            let player = (cur_player + i) % 4;
+                            if let Some(ops) = self.state.get_player_rsp_for_pop_card(player) {
+                                self.notify_operation(player, &ops);
+                                other_ops[player] = Some(ops);
                             }
                         }
                         self.state.print_state(); 
+                        self.other_ops = other_ops;
 
                         if let Some(ops) = self.wait_for_player_operation(4) {
                         }
@@ -77,10 +82,10 @@ impl Game {
         }
     }
 
-    fn notify_operation(&self, player: usize, ops: Vec<MajiangOperation>) {
+    fn notify_operation(&self, player: usize, ops: &Vec<MajiangOperation>) {
     }
 
-    fn recv_player_operation(&mut self, player: usize) -> Option<MajiangOperation> {
+    fn mock_recv_player_pop(&mut self, player: usize) -> Option<MajiangOperation> {
         let player_state = self.state.get_player_state(player);
         let cards = player_state.on_hand_card_id();
         let mut rng = thread_rng();
@@ -91,8 +96,22 @@ impl Game {
             None
         }
     }
+
+    fn mock_recv_player_rsp(&mut self) {
+        for i in 0..4 {
+            if let Some(op) = &self.other_ops[i] {
+               self.recv_other_ops[i] = Some(MajiangOperation {
+                   op: op[0].op,
+                   on_hand: op[0].on_hand.clone(),
+                   target: op[0].target,
+               });
+            }
+        }
+    }
     
     fn wait_for_player_operation(&mut self, timeout: u8) -> Option<Vec<MajiangOperation>> {
+        self.recv_other_ops = vec![None, None, None, None];
+        self.mock_recv_player_rsp();
         None
     }
 

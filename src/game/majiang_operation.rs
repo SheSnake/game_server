@@ -1,3 +1,4 @@
+#[derive(Clone, Copy)]
 pub enum Action {
     POP,
     CHI,
@@ -123,6 +124,7 @@ impl MajiangOperation {
     }
 
     pub fn get_win_op(avl_cards: &Vec<u8>, pop_card: u8) -> Option<MajiangOperation> {
+        None
     }
 
     pub fn to_string(&self, majiang_map: &Vec<Majiang>) -> String {
