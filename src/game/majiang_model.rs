@@ -15,4 +15,14 @@ impl Majiang {
             Majiang::BaiBan => format!("Bai"),
         }
     }
+
+    pub fn begin_card(card: u8) -> bool {
+        let ix = card / 4;
+        ix == 0 || ix == 9 || ix == 18
+    }
+
+    pub fn end_card(card: u8) -> bool {
+        let ix = card / 4;
+        ix == 8 || ix == 17 || ix == 26
+    }
 }

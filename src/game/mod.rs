@@ -52,12 +52,12 @@ impl Game {
                 match player_op.op {
                     Action::POP => {
                         self.state.do_pop_card(cur_player, &player_op);
-                        // 3. get operation of other player for this pop card
-                        for i in 0..4 {
+                        // 3. get operation of next player for this pop card
+                        for i in 1..4 {
                             if i == cur_player {
                                 continue;
                             }
-                            if let Some(ops) = self.state.get_player_op_by_card(i, player_op.target) {
+                            if let Some(ops) = self.state.get_player_rsp_for_pop_card((cur_player + i) % 4) {
                                 self.notify_operation(i, ops);
                             }
                         }

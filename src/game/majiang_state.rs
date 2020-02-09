@@ -159,6 +159,31 @@ impl GameState {
         None
     }
 
+    pub fn get_player_rsp_for_pop_card(&self, player: usize) -> Option<Vec<MajiangOperation>> {
+        let mut ops: Vec<MajiangOperation> = Vec::new();
+        let cards = self.player_state[player].on_hand_card_id();
+        if player == (self.cur_player + 1) % 4 {
+            if let Some(chi_ops) = MajiangOperation::get_chi_op(&cards, self.cur_pop_card)
+            {
+                ops.extend(chi_ops);
+            }
+        };
+        if let Some(peng_op) = MajiangOperation::get_peng_op(&cards, self.cur_pop_card)
+        {
+            ops.push(peng_op);
+        }
+        if let Some(gang_op) = MajiangOperation::get_gang_op(&cards, self.cur_pop_card)
+        {
+            ops.push(gang_op);
+        }
+        if ops.len() > 0 {
+            Some(ops)
+        }
+        else {
+            None
+        }
+    }
+
     pub fn do_pop_card(&mut self, player: usize, op: &MajiangOperation) {
         if self.player_state[player].has_card(op.target) {
             self.player_state[player].pop_card(op.target);
@@ -173,11 +198,13 @@ impl GameState {
     }
 
     pub fn print_state(&self) {
+        let mut in_wait_rsp = false;
         match self.cur_state {
             StateType::WAIT_POP => {
                 println!("step:{} next_card_ix:{} state:{}", self.cur_step, self.cur_card_ix, self.cur_state.to_string());
             },
             StateType::WAIT_RESPONSE => {
+                in_wait_rsp = true;
                 println!("step:{} next_card_ix:{} state:{} cur_pop_card:{}", self.cur_step, self.cur_card_ix, self.cur_state.to_string(), Majiang::format(&self.cards[self.cur_pop_card as usize]));
             },
             _ => ()
@@ -193,10 +220,17 @@ impl GameState {
             }
             if let Some(recv_now) = self.player_state[i].on_recv_now {
                 let ix = recv_now as usize;
-                content += &format!("on hand:{}", Majiang::format(&self.cards[ix]));
+                content += &format!("on hand:{} ", Majiang::format(&self.cards[ix]));
             }
             if i == self.cur_player {
                 indicate = "*".to_string();
+            }
+            else if in_wait_rsp {
+                if let Some(ops) = self.get_player_rsp_for_pop_card(i) {
+                    for op in ops.iter() {
+                        content += &format!("{} ", MajiangOperation::to_string(&op, &self.cards));
+                    }
+                }
             }
             println!("{} player[{}]: {}\n",indicate, i, content);
         }
