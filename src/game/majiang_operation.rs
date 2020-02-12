@@ -1,3 +1,6 @@
+
+use std::collections::HashMap;
+
 #[derive(Clone, Copy)]
 pub enum Action {
     POP,
@@ -21,6 +24,16 @@ pub struct MajiangOperation {
 }
 
 impl Action {
+    pub fn priority(&self) -> u8 {
+        match self {
+            Action::CHI => 1,
+            Action::PENG => 2,
+            Action::GANG => 3,
+            Action::HU => 4,
+            Action::ZI_MO => 5,
+            _ => 0
+        }
+    }
 }
 
 
@@ -34,7 +47,82 @@ impl MajiangOperation {
         Some(op)
     }
 
+    pub fn get_all_seq(cards: &Vec<u8>) -> Option<Vec<Vec<u8>>> {
+        let mut seq_group: HashMap<Vec<u8>, u8> = HashMap::new();
+        for &card in cards.iter() {
+            let mut avl_card = Vec::new();
+            for &avl in cards.iter() {
+                if avl == card {
+                    continue;
+                }
+                avl_card.push(avl);
+            }
+            if let Some(chi_ops) = MajiangOperation::get_chi_op(
+                &avl_card,  card) {
+                for op in chi_ops.iter() {
+                    let mut seq = op.on_hand.clone();
+                    seq.push(op.target);
+                    seq.sort();
+                    seq_group.insert(seq, 1);
+                }
+            }
+            if let Some(peng_op) = MajiangOperation::get_peng_op(&avl_card, card) {
+                let mut seq = peng_op.on_hand.clone();
+                seq.push(peng_op.target);
+                seq.sort();
+                seq_group.insert(seq, 1);
+            }
+        }
+        if seq_group.len() > 0 {
+            let mut seqs = Vec::new();
+            for k in seq_group.keys() {
+                seqs.push(k.clone());
+            }
+            Some(seqs)
+        }
+        else {
+            None
+        }
+    }
+
+    pub fn all_in_seq(cards: &Vec<u8>) -> bool {
+        if cards.len() == 0 {
+            return true;
+        }
+        if cards.len() < 3 {
+            return false;
+        }
+        if let Some(seqs) = MajiangOperation::get_all_seq(cards) {
+            if cards.len() == 3 {
+                return true;
+            }
+            let mut avl_cards = HashMap::new();
+            for &avl in cards.iter() {
+                avl_cards.insert(avl, 1);
+            }
+            for seq in seqs.iter() {
+                for used in seq.iter() {
+                    avl_cards.remove(used);
+                }
+                let mut left_cards = Vec::new();
+                for (&k, v) in avl_cards.iter() {
+                    left_cards.push(k);
+                }
+                if MajiangOperation::all_in_seq(&left_cards) {
+                    return true;
+                }
+                for &used in seq.iter() {
+                    avl_cards.insert(used, 1);
+                }
+            }
+        }
+        return false;
+    }
+
     pub fn get_chi_op(avl_cards: &Vec<u8>, pop_card: u8) -> Option<Vec<MajiangOperation>> {
+        if Majiang::is_bai_bang(pop_card) {
+            return None;
+        }
         let mut ops: Vec<MajiangOperation> = Vec::new();
         let to_found = [[1, 2], [-1, 1], [-1, -2]];
         for i in 0..3 {
@@ -123,8 +211,90 @@ impl MajiangOperation {
         }
     }
 
-    pub fn get_win_op(avl_cards: &Vec<u8>, pop_card: u8) -> Option<MajiangOperation> {
-        None
+    pub fn check_win(cards: &Vec<u8>) -> bool {
+        let mut pair_group = HashMap::new();
+        let mut on_hand = HashMap::new();
+        for &card in cards.iter() {
+            on_hand.insert(card, 1);
+        }
+        for (&k1, v1) in on_hand.iter() {
+            for (&k2, v2) in on_hand.iter() {
+                if k1 == k2 {
+                    continue;
+                }
+                if k1 / 4 == k2 / 4 {
+                    pair_group.insert(k1 / 4, (k1, k2));
+                } 
+            }
+        }
+
+        for (k, (c1, c2)) in pair_group.iter() {
+            on_hand.remove(c1);
+            on_hand.remove(c2);
+            let mut avl_cards = Vec::new();
+            for (&card, _)  in on_hand.iter() {
+                avl_cards.push(card);
+            }
+            if MajiangOperation::all_in_seq(&avl_cards) {
+                return true;
+            }
+            on_hand.insert(*c1, 1);
+            on_hand.insert(*c2, 1);
+        }
+        return false;
+    }
+
+    pub fn check_same_card(avl_cards: &Vec<u8>, target: u8) -> bool {
+        for &card in avl_cards.iter() {
+            if card == target {
+                continue;
+            }
+            let ix = card / 4;
+            if ix == target / 4 {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn check_neighbor_card(avl_cards: &Vec<u8>, target: u8) -> bool {
+        if Majiang::is_bai_bang(target) {
+            return false;
+        }
+        let target_ix = target / 4;
+        for &card in avl_cards.iter() {
+            if card == target {
+                continue;
+            }
+            let ix = card / 4;
+            if Majiang::begin_card(target) {
+                if ix == target_ix + 1 {
+                    return true;
+                }
+            }
+            else if Majiang::end_card(target) {
+                if ix + 1 == target_ix {
+                    return true;
+                }
+            }
+            else if ix + 1 == target_ix || target_ix + 1 == ix {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn select_advised_pop_card(avl_cards: &Vec<u8>) -> Option<u8> {
+        for &card in avl_cards.iter() {
+            if MajiangOperation::check_same_card(avl_cards, card) {
+                continue;
+            }
+            if MajiangOperation::check_neighbor_card(avl_cards, card) {
+                continue;
+            }
+            return Some(card);
+        }
+        return None;
     }
 
     pub fn to_string(&self, majiang_map: &Vec<Majiang>) -> String {

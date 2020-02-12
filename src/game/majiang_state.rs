@@ -1,4 +1,5 @@
 extern crate rand;
+use std::process::exit;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::HashMap;
@@ -31,14 +32,34 @@ impl MajiangPlayerState {
     }
 
     pub fn execute_op(&mut self, op: &MajiangOperation) {
+        let mut group = Vec::new();
         match op.op {
             Action::CHI => {
+                for (&card) in op.on_hand.iter() {
+                    self.on_hand.remove(&card);
+                    group.push(card); 
+                }
             },
             Action::PENG => {
+                for (&card) in op.on_hand.iter() {
+                    self.on_hand.remove(&card);
+                    group.push(card); 
+                }
             },
             Action::GANG => {
+                for (&card) in op.on_hand.iter() {
+                    self.on_hand.remove(&card);
+                    group.push(card); 
+                }
             },
             _ => ()
+        }
+        group.push(op.target);
+        group.sort();
+        if let Some(group_cards) = &mut self.group_cards {
+            group_cards.push(group);
+        } else {
+            self.group_cards = Some(vec![group]);
         }
     }
 
@@ -58,12 +79,22 @@ impl MajiangPlayerState {
         cards.sort();
         cards
     }
+
+    pub fn group_card_id(&self) -> Option<Vec<Vec<u8>>> {
+        self.group_cards.clone()
+    }
+
+    pub fn get_win_op(&self) -> Option<MajiangOperation> {
+        None
+    }
 }
 
 pub enum StateType {
     DEAL_CARD,
     WAIT_POP,
     WAIT_RESPONSE,
+    WIN_OVER,
+    OUT_OF_CARD,
 }
 
 impl StateType {
@@ -72,6 +103,8 @@ impl StateType {
             StateType::DEAL_CARD => "DEAL_CARD".to_string(),
             StateType::WAIT_POP => "WAIT_POP".to_string(),
             StateType::WAIT_RESPONSE => "WAIT_RESPONSE".to_string(),
+            StateType::WIN_OVER => "WIN_OVER".to_string(),
+            StateType::OUT_OF_CARD => "OUT_OF_CARD".to_string(),
         }
     }
 }
@@ -83,6 +116,8 @@ pub struct GameState {
     cards: Vec<Majiang>,
     player_state: Vec<MajiangPlayerState>,
     hide_card: Vec<u8>,
+    win_player: usize,
+    win_method: Action,
     cur_player: usize,
     cur_card_ix: usize,
     cur_pop_card: u8,
@@ -97,6 +132,8 @@ impl GameState {
             cards: Vec::new(),
             player_state: Vec::new(),
             hide_card: Vec::new(),
+            win_player: 5,
+            win_method: Action::HU,
             cur_player: 0,
             cur_card_ix: 0,
             cur_pop_card: 0,
@@ -148,12 +185,12 @@ impl GameState {
         }
     }
 
-    pub fn next_card(&mut self) -> u8 {
+    pub fn deal_next_card(&mut self) -> u8 {
         let card_id = self.hide_card[self.cur_card_ix];
         self.add_card(self.cur_player, 1);
         self.cur_step += 1;
         self.cur_state = StateType::WAIT_POP;
-        card_id
+        return card_id;
     }
 
     pub fn next_player(&mut self) {
@@ -170,7 +207,24 @@ impl GameState {
     }
 
     pub fn get_player_win_op(&self, player: usize) -> Option<MajiangOperation> {
+        self.player_state[player].get_win_op();
         None
+    }
+
+    pub fn get_cur_player_ops(&self) -> Option<Vec<MajiangOperation>> {
+        let mut ops = Vec::new();
+        let avl_cards = self.player_state[self.cur_player].on_hand_card_id();
+        if MajiangOperation::check_win(&avl_cards) {
+            ops.push(MajiangOperation {
+                op: Action::ZI_MO,
+                on_hand: avl_cards.clone(),
+                target: self.cur_pop_card,
+            })
+        }
+        if ops.len() > 0 {
+            return Some(ops);
+        }
+        return None;
     }
 
     pub fn get_player_rsp_for_pop_card(&self, player: usize) -> Option<Vec<MajiangOperation>> {
@@ -190,6 +244,16 @@ impl GameState {
         {
             ops.push(gang_op);
         }
+        let mut avl_cards = cards.clone();
+        avl_cards.push(self.cur_pop_card);
+        if MajiangOperation::check_win(&avl_cards) {
+            ops.push(MajiangOperation {
+                op: Action::HU,
+                on_hand: cards.clone(),
+                target: self.cur_pop_card,
+            });
+        }
+
         if ops.len() > 0 {
             Some(ops)
         }
@@ -207,8 +271,31 @@ impl GameState {
         }
     }
 
+    pub fn do_operation(&mut self, player: usize, op: &MajiangOperation) {
+        self.cur_step += 1;
+        self.cur_player = player;
+        self.player_state[player].execute_op(op);
+        self.cur_state = StateType::WAIT_POP;
+    }
+
+    pub fn execute_win_op(&mut self, player: usize, op: &MajiangOperation) {
+        self.win_player = player;
+        self.cur_state = StateType::WIN_OVER;
+        self.win_method = op.op.clone();
+    }
+
     pub fn over(&self) -> bool {
-        self.cur_card_ix == self.hide_card.len()
+        if self.cur_card_ix == self.hide_card.len() {
+            return true;
+        }
+        match self.cur_state {
+            StateType::WIN_OVER => {
+                return true;
+            }
+            _ => {
+                return false;
+            }
+        }
     }
 
     pub fn print_state(&self) {
@@ -221,6 +308,19 @@ impl GameState {
                 in_wait_rsp = true;
                 println!("step:{} next_card_ix:{} state:{} cur_pop_card:{}", self.cur_step, self.cur_card_ix, self.cur_state.to_string(), Majiang::format(&self.cards[self.cur_pop_card as usize]));
             },
+            StateType::WIN_OVER => {
+                let mut win_str = "".to_string();
+                match self.win_method {
+                    Action::HU => {
+                        win_str = "HU".to_string();
+                    },
+                    Action::ZI_MO => {
+                        win_str = "ZIMO".to_string();
+                    },
+                    _ => (),
+                }
+                println!("step:{} win_method:{} state:{}", self.cur_step, win_str, self.cur_state.to_string());
+            },
             _ => ()
         }
         for i in 0..4 {
@@ -232,12 +332,27 @@ impl GameState {
                 let card = Majiang::format(&self.cards[ix]);
                 content += &format!("{} ", card);
             }
+
+            if let Some(groups) = self.player_state[i].group_card_id() {
+                for group in groups.iter() {
+                    let mut group_str =  "|".to_string();
+                    for &card in group.iter() {
+                        let ix = card as usize;
+                        group_str += &format!("{} ", Majiang::format(&self.cards[ix]));
+                    }
+                    group_str += &"|".to_string();
+                    content += &format!("{} ", group_str);
+                }
+            }
             if let Some(recv_now) = self.player_state[i].on_recv_now {
                 let ix = recv_now as usize;
                 content += &format!("on hand:{} ", Majiang::format(&self.cards[ix]));
             }
             if i == self.cur_player {
                 indicate = "*".to_string();
+            }
+            else if i == self.win_player {
+                indicate = "!".to_string();
             }
             else if in_wait_rsp {
                 if let Some(ops) = self.get_player_rsp_for_pop_card(i) {
