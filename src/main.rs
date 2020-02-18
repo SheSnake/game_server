@@ -1,5 +1,8 @@
 
 pub mod game;
+pub mod server_net;
+use std::thread;
+
 fn main() {
     println!("Hello, world!");
     let mut p1 = game::player::Player {
@@ -23,6 +26,11 @@ fn main() {
         fd: 0,
     };
     let mut round = game::Game::new(vec![p1, p2, p3, p4]);
-    round.init();
-    round.start();
+    //round.init();
+    //round.start();
+    let mut server = server_net::MultiThreadServer::new("0.0.0.0:8890".to_string());
+    let t1 = thread::spawn(move || {
+        server.start();
+    });
+    t1.join();
 }
