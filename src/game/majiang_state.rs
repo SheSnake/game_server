@@ -1,5 +1,4 @@
 extern crate rand;
-use std::process::exit;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::HashMap;
@@ -35,7 +34,7 @@ impl MajiangPlayerState {
         let mut group = Vec::new();
         match op.op {
             Action::CHI => {
-                for (&card) in op.on_hand.iter() {
+                for &card in op.on_hand.iter() {
                     self.on_hand.remove(&card);
                     group.push(card); 
                 }

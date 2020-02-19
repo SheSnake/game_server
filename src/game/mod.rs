@@ -7,7 +7,6 @@ use rand::seq::SliceRandom;
 use player::Player;
 
 pub mod majiang_model;
-use majiang_model::Majiang;
 
 pub mod majiang_state;
 use majiang_state::GameState;

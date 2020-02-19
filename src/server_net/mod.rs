@@ -6,7 +6,6 @@ extern crate bincode;
 use std::mem;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::io::Read;
-use std::io::{BufWriter, BufReader};
 use std::thread;
 use std::sync::{Mutex, Arc, mpsc};
 use std::sync::mpsc::{ Sender, Receiver };
@@ -37,6 +36,23 @@ impl ClientSession {
             cur_size: 0,
             total_size: 4096,
         }
+    }
+
+    pub fn rollbuf(&mut self) {
+        if self.cur_head == 0 {
+            return;
+        }
+        let mut ix: usize = 0;
+        for i in self.cur_head..self.cur_tail {
+            self.buf[ix] = self.buf[i];
+            ix += 1;
+        }
+        self.cur_head = 0;
+        self.cur_tail = ix;
+    }
+
+    pub fn reach_buf_end(&self) -> bool {
+        return self.cur_tail == self.total_size;
     }
 }
 
@@ -88,28 +104,51 @@ impl MultiThreadServer {
                 let mut session = ClientSession::new(socket);
                 loop {
                     println!("try read");
-                    let n = match session.fd.read(&mut session.buf[session.cur_tail..]).await {
+                    match session.fd.read(&mut session.buf[session.cur_tail..]).await {
                         Ok(n) if n == 0 => {
                             println!("session close");
                             return;
                         }
                         Ok(n) => {
-                            session.cur_tail += n;
-                            session.cur_size += n;
-                            println!("has read {}, need {}", session.cur_size, mem::size_of::<Header>());
-                            if session.cur_size >= mem::size_of::<Header>() {
-                                match bincode::deserialize::<Header> (&session.buf[session.cur_head..]) {
+                            session.cur_tail += n as usize;
+                            session.cur_size += n as usize;
+                            if session.reach_buf_end() {
+                                println!("reach buf end!!");
+                                session.rollbuf();
+                            }
+                            let header_size = mem::size_of::<Header>();
+                            // for each read, handle all the finished recv meesage
+                            while session.cur_size >= header_size {
+                                match bincode::deserialize::<Header> (&session.buf[session.cur_head..session.cur_head + header_size]) {
                                     Ok(header) => {
-                                        println!("read header {}, {}", header.msg_type, header.len);
+                                        println!("has read header, cur_head:{}, cur size:{}, need_len:{}", session.cur_head, session.cur_size, &header.len);
+                                        if session.cur_size >= header.len as usize {
+                                            match header.msg_type {
+                                                0 => {
+                                                    match bincode::deserialize::<GameOperation> (&session.buf[session.cur_head..session.cur_head + header.len as usize]) {
+                                                        Ok(game_op) => {
+                                                            println!("recv provide:{:?} target:{}", game_op.provide_cards, game_op.target);
+                                                        },
+                                                        Err(err) => {
+                                                            println!("parse message err: {:?}", err);
+                                                        }
+                                                    }
+                                                },
+                                                _ => (),
+                                            }
+                                            session.cur_size -= header.len as usize;
+                                            session.cur_head += header.len as usize;
+                                        }
+                                        else {
+                                            break;
+                                        }
                                     },
                                     Err(err) => {
                                         println!("parse err: {:?}", err);
+                                        break;
                                     },
                                 }
-                                //serde_bytes::deserialize::<std::vec::Vec<u8>,Header>(bytes);
                             }
-                            println!("read {}: {}", n, String::from_utf8_lossy(&session.buf[..]));
-                            n
                         },
                         Err(e) => {
                             println!("failed to read from socket; err = {:?}", e);
