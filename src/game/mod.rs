@@ -1,7 +1,8 @@
 pub mod player;
+pub mod room;
 
 extern crate rand;
-use rand::{thread_rng, Rng};
+use rand::{ thread_rng };
 use rand::seq::SliceRandom;
 
 use player::Player;
@@ -56,11 +57,11 @@ impl Game {
                 self.cur_player_ops = None;
             }
 
-            while true {
+            loop {
                 let cur_player = self.state.cur_player();
                 let cur_player_op = self.wait_for_cur_player_op(8);
                 match cur_player_op.op {
-                    Action::POP => {
+                    Action::Pop => {
                         // 3. cur_player pop an card
                         self.state.do_pop_card(cur_player, &cur_player_op);
                         // 4. get rsp op of other player for this pop card
@@ -80,7 +81,7 @@ impl Game {
                         // if recv valid rsp op before timeout
                         if let Some((player, op)) = recv {
                             match op.op {
-                                Action::HU => {
+                                Action::Hu => {
                                     // if win over, over this game
                                     self.state.execute_win_op(player, &op);
                                     self.state.print_state();
@@ -98,13 +99,13 @@ impl Game {
                             break;
                         }
                     },
-                    Action::ZI_MO => {
+                    Action::ZiMo => {
                         // only for first time of this iteration
                         self.state.execute_win_op(cur_player, &cur_player_op);
                         self.state.print_state();
                         break;
                     },
-                    Action::GANG => {
+                    Action::Gang => {
                         // TODO
                     },
                     _ => () //  IMPOSSIBLE

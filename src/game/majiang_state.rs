@@ -33,20 +33,20 @@ impl MajiangPlayerState {
     pub fn execute_op(&mut self, op: &MajiangOperation) {
         let mut group = Vec::new();
         match op.op {
-            Action::CHI => {
+            Action::Chi => {
                 for &card in op.on_hand.iter() {
                     self.on_hand.remove(&card);
                     group.push(card); 
                 }
             },
-            Action::PENG => {
-                for (&card) in op.on_hand.iter() {
+            Action::Peng => {
+                for &card in op.on_hand.iter() {
                     self.on_hand.remove(&card);
                     group.push(card); 
                 }
             },
-            Action::GANG => {
-                for (&card) in op.on_hand.iter() {
+            Action::Gang => {
+                for &card in op.on_hand.iter() {
                     self.on_hand.remove(&card);
                     group.push(card); 
                 }
@@ -72,7 +72,7 @@ impl MajiangPlayerState {
 
     pub fn on_hand_card_id(&self) -> Vec<u8> {
         let mut cards = Vec::new();
-        for (&k, v) in self.on_hand.iter() {
+        for (&k, _) in self.on_hand.iter() {
             cards.push(k);
         }
         cards.sort();
@@ -89,21 +89,21 @@ impl MajiangPlayerState {
 }
 
 pub enum StateType {
-    DEAL_CARD,
-    WAIT_POP,
-    WAIT_RESPONSE,
-    WIN_OVER,
-    OUT_OF_CARD,
+    DealCard,
+    WaitPop,
+    WaitResponse,
+    WinOver,
+    OutOfCard,
 }
 
 impl StateType {
     pub fn to_string(&self) -> String {
         match self {
-            StateType::DEAL_CARD => "DEAL_CARD".to_string(),
-            StateType::WAIT_POP => "WAIT_POP".to_string(),
-            StateType::WAIT_RESPONSE => "WAIT_RESPONSE".to_string(),
-            StateType::WIN_OVER => "WIN_OVER".to_string(),
-            StateType::OUT_OF_CARD => "OUT_OF_CARD".to_string(),
+            StateType::DealCard => "DEAL_CARD".to_string(),
+            StateType::WaitPop => "WAIT_POP".to_string(),
+            StateType::WaitResponse => "WAIT_RESPONSE".to_string(),
+            StateType::WinOver => "WIN_OVER".to_string(),
+            StateType::OutOfCard => "OUT_OF_CARD".to_string(),
         }
     }
 }
@@ -127,12 +127,12 @@ impl GameState {
         GameState {
             num: num,
             cur_step: 0,
-            cur_state: StateType::DEAL_CARD,
+            cur_state: StateType::DealCard,
             cards: Vec::new(),
             player_state: Vec::new(),
             hide_card: Vec::new(),
             win_player: 5,
-            win_method: Action::HU,
+            win_method: Action::Hu,
             cur_player: 0,
             cur_card_ix: 0,
             cur_pop_card: 0,
@@ -141,21 +141,21 @@ impl GameState {
 
     pub fn init(&mut self) {
         for i in 1..10 {
-            for j in 0..4 {
+            for _j in 0..4 {
                 self.cards.push(Majiang::Wan(i));
             }
         }
         for i in 1..10 {
-            for j in 0..4 {
+            for _j in 0..4 {
                 self.cards.push(Majiang::Tiao(i));
             }
         }
         for i in 1..10 {
-            for j in 0..4 {
+            for _j in 0..4 {
                 self.cards.push(Majiang::Bin(i));
             }
         }
-        for j in 0..4 {
+        for _j in 0..4 {
             self.cards.push(Majiang::BaiBan);
         }
         for i in 0..112 {
@@ -178,7 +178,7 @@ impl GameState {
 
     pub fn deal_card(&mut self) {
         for i in 0..4 {
-            let mut state = MajiangPlayerState::new();
+            let state = MajiangPlayerState::new();
             self.player_state.push(state);
             self.add_card(i, 13);
         }
@@ -188,7 +188,7 @@ impl GameState {
         let card_id = self.hide_card[self.cur_card_ix];
         self.add_card(self.cur_player, 1);
         self.cur_step += 1;
-        self.cur_state = StateType::WAIT_POP;
+        self.cur_state = StateType::WaitPop;
         return card_id;
     }
 
@@ -215,7 +215,7 @@ impl GameState {
         let avl_cards = self.player_state[self.cur_player].on_hand_card_id();
         if MajiangOperation::check_win(&avl_cards) {
             ops.push(MajiangOperation {
-                op: Action::ZI_MO,
+                op: Action::ZiMo,
                 on_hand: avl_cards.clone(),
                 target: self.cur_pop_card,
             })
@@ -247,7 +247,7 @@ impl GameState {
         avl_cards.push(self.cur_pop_card);
         if MajiangOperation::check_win(&avl_cards) {
             ops.push(MajiangOperation {
-                op: Action::HU,
+                op: Action::Hu,
                 on_hand: cards.clone(),
                 target: self.cur_pop_card,
             });
@@ -266,7 +266,7 @@ impl GameState {
             self.player_state[player].pop_card(op.target);
             self.cur_pop_card = op.target;
             self.cur_step += 1;
-            self.cur_state = StateType::WAIT_RESPONSE;
+            self.cur_state = StateType::WaitResponse;
         }
     }
 
@@ -274,12 +274,12 @@ impl GameState {
         self.cur_step += 1;
         self.cur_player = player;
         self.player_state[player].execute_op(op);
-        self.cur_state = StateType::WAIT_POP;
+        self.cur_state = StateType::WaitPop;
     }
 
     pub fn execute_win_op(&mut self, player: usize, op: &MajiangOperation) {
         self.win_player = player;
-        self.cur_state = StateType::WIN_OVER;
+        self.cur_state = StateType::WinOver;
         self.win_method = op.op.clone();
     }
 
@@ -288,7 +288,7 @@ impl GameState {
             return true;
         }
         match self.cur_state {
-            StateType::WIN_OVER => {
+            StateType::WinOver => {
                 return true;
             }
             _ => {
@@ -300,20 +300,20 @@ impl GameState {
     pub fn print_state(&self) {
         let mut in_wait_rsp = false;
         match self.cur_state {
-            StateType::WAIT_POP => {
+            StateType::WaitPop => {
                 println!("step:{} next_card_ix:{} state:{}", self.cur_step, self.cur_card_ix, self.cur_state.to_string());
             },
-            StateType::WAIT_RESPONSE => {
+            StateType::WaitResponse => {
                 in_wait_rsp = true;
                 println!("step:{} next_card_ix:{} state:{} cur_pop_card:{}", self.cur_step, self.cur_card_ix, self.cur_state.to_string(), Majiang::format(&self.cards[self.cur_pop_card as usize]));
             },
-            StateType::WIN_OVER => {
+            StateType::WinOver => {
                 let mut win_str = "".to_string();
                 match self.win_method {
-                    Action::HU => {
+                    Action::Hu => {
                         win_str = "HU".to_string();
                     },
-                    Action::ZI_MO => {
+                    Action::ZiMo => {
                         win_str = "ZIMO".to_string();
                     },
                     _ => (),

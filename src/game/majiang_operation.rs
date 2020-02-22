@@ -2,17 +2,18 @@
 use std::collections::HashMap;
 
 #[derive(Clone, Copy)]
+#[repr(u8)]
 pub enum Action {
-    POP,
-    CHI,
-    PENG,
-    GANG,
-    HU,
-    ZI_MO,
-    QIANG_JIN,
-    QING_YI_SE,
-    JIN_QUE,
-    JIN_LONG,
+    Pop,
+    Chi,
+    Peng,
+    Gang,
+    Hu,
+    ZiMo,
+    QiangJin,
+    QingYiSe,
+    JinQue,
+    JinLong,
 }
 
 use super::majiang_model::Majiang;
@@ -26,11 +27,11 @@ pub struct MajiangOperation {
 impl Action {
     pub fn priority(&self) -> u8 {
         match self {
-            Action::CHI => 1,
-            Action::PENG => 2,
-            Action::GANG => 3,
-            Action::HU => 4,
-            Action::ZI_MO => 5,
+            Action::Chi => 1,
+            Action::Peng => 2,
+            Action::Gang => 3,
+            Action::Hu => 4,
+            Action::ZiMo => 5,
             _ => 0
         }
     }
@@ -39,8 +40,8 @@ impl Action {
 
 impl MajiangOperation {
     pub fn pop_card(card: u8) -> Option<MajiangOperation> {
-        let mut op = MajiangOperation {
-            op: Action::POP,
+        let op = MajiangOperation {
+            op: Action::Pop,
             on_hand: vec![card],
             target: card,
         };
@@ -105,7 +106,7 @@ impl MajiangOperation {
                     avl_cards.remove(used);
                 }
                 let mut left_cards = Vec::new();
-                for (&k, v) in avl_cards.iter() {
+                for (&k, _) in avl_cards.iter() {
                     left_cards.push(k);
                 }
                 if MajiangOperation::all_in_seq(&left_cards) {
@@ -153,7 +154,7 @@ impl MajiangOperation {
             }
             if found_cards.len() == 2 {
                 ops.push(MajiangOperation {
-                    op: Action::CHI,
+                    op: Action::Chi,
                     on_hand: found_cards,
                     target: pop_card,
                 });
@@ -179,7 +180,7 @@ impl MajiangOperation {
         }
         if cards.len() == 2 {
             Some(MajiangOperation {
-                op: Action::PENG,
+                op: Action::Peng,
                 on_hand: cards,
                 target: pop_card,
             })
@@ -201,7 +202,7 @@ impl MajiangOperation {
         }
         if cards.len() == 3 {
             Some(MajiangOperation {
-                op: Action::GANG,
+                op: Action::Gang,
                 on_hand: cards,
                 target: pop_card,
             })
@@ -217,8 +218,8 @@ impl MajiangOperation {
         for &card in cards.iter() {
             on_hand.insert(card, 1);
         }
-        for (&k1, v1) in on_hand.iter() {
-            for (&k2, v2) in on_hand.iter() {
+        for (&k1, _) in on_hand.iter() {
+            for (&k2, _) in on_hand.iter() {
                 if k1 == k2 {
                     continue;
                 }
@@ -228,7 +229,7 @@ impl MajiangOperation {
             }
         }
 
-        for (k, (c1, c2)) in pair_group.iter() {
+        for (_k, (c1, c2)) in pair_group.iter() {
             on_hand.remove(c1);
             on_hand.remove(c2);
             let mut avl_cards = Vec::new();
@@ -299,18 +300,18 @@ impl MajiangOperation {
 
     pub fn to_string(&self, majiang_map: &Vec<Majiang>) -> String {
         match self.op {
-            Action::CHI => {
+            Action::Chi => {
                 let ix_1 = self.on_hand[0] as usize;
                 let ix_2 = self.on_hand[1] as usize;
                 let chi = format!("CHI:{}||{}", Majiang::format(&majiang_map[ix_1]), Majiang::format(&majiang_map[ix_2])).to_string();
                 chi
             },
-            Action::PENG => {
+            Action::Peng => {
                 let ix_1 = self.on_hand[0] as usize;
                 let peng = format!("PENG:{}||{}", Majiang::format(&majiang_map[ix_1]), Majiang::format(&majiang_map[ix_1])).to_string();
                 peng
             },
-            Action::GANG => {
+            Action::Gang => {
                 let ix_1 = self.on_hand[0] as usize;
                 let gang = format!("GANG:{}||{}||{}", Majiang::format(&majiang_map[ix_1]), Majiang::format(&majiang_map[ix_1]), Majiang::format(&majiang_map[ix_1])).to_string();
                 gang

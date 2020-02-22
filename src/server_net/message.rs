@@ -1,22 +1,60 @@
 use serde::{Deserialize, Serialize};
 
+#[repr(i8)]
 pub enum MsgType {
-    POP_CARD,
+    /*
+     * room manage
+     * */
+    RoomOp = 1,
+
+    /*
+     * game op
+     */
+    GameOp = 0,
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
-#[repr(packed(1))]
+#[repr(i8)]
+pub enum OpType {
+    CreateRoom = 1,
+    JoinRoom = 2,
+    LeaveRoom = 3,
+    ReadyRoom = 4,
+}
+
+#[repr(i32)]
+pub enum Code {
+    CreateOk = 1100,
+    CreateFail = 1101,
+    JoinOk = 1200,
+    RoomFull = 1201,
+    RoomInexist = 1202,
+    RreadOk = 1400,
+}
+
+#[repr(packed)]
+#[derive(Copy, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct Header {
     pub msg_type: i8,
     pub len: i32, // message length, include header and payload
 }
 
+//impl Copy for Header {}
+//impl Clone for Header {
+//    fn clone(&self) -> Header {
+//        return Header {
+//            msg_type: self.msg_type,
+//            len: self.len,
+//        };
+//    }
+//}
+
 /*
  * used for sync game time between client and server
  */
 
-#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
-#[repr(packed(1))]
+#[derive(Deserialize, Copy, Clone)]
+#[repr(packed)]
 pub struct GameBasicInfo {
     pub cur_game_step: i64,
     pub player_id: u8,
@@ -29,12 +67,37 @@ pub struct GameBasicInfo {
  * POP, HU, PENG, CHI, GANG, ZIMO and so on.
  */
 
-#[derive(Serialize, Deserialize, Debug)]
-#[repr(packed(1))]
+#[derive(Deserialize)]
+#[repr(packed)]
 pub struct GameOperation {
     pub header: Header,
     pub game_info: GameBasicInfo,
     pub op_type: i8,
     pub target: u8,
     pub provide_cards: Vec<u8>, // this is i64 + payload: [u8]
+}
+
+
+/*
+ * room operation message
+ * crate join leave.
+ */
+
+#[derive(Deserialize)]
+#[repr(packed)]
+pub struct RoomManage {
+    pub header: Header,
+    pub op_type: i8,
+    pub user_id: i64,
+    pub room_id: [u8; 6], // 000000 for create
+}
+
+#[derive(Serialize, Deserialize)]
+#[repr(packed)]
+pub struct RoomManageResult {
+    pub header: Header,
+    pub op_type: i8,
+    pub user_id: i64,
+    pub code: i32,
+    pub room_id: Vec<u8>, // 000000 for create
 }
