@@ -75,52 +75,64 @@ async fn main() {
         loop {
             let buf: &[u8] = &req_rx.recv().await.unwrap();
             let header = bincode::deserialize::<Header> (&buf[0..header_size]).unwrap();
-            unsafe {
-                match mem::transmute(header.msg_type) {
-                    MsgType::GameOp => {
-                        println!("recv game op");
-                        match bincode::deserialize::<GameOperation> (&buf[..]) {
-                            Ok(game_op) => {
+            match unsafe { mem::transmute(header.msg_type) } {
+                MsgType::GameOp => {
+                    match bincode::deserialize::<GameOperation> (&buf[..]) {
+                        Ok(game_op) => {
+                            unsafe {
                                 println!("recv provide:{:?} target:{}", game_op.provide_cards, game_op.target);
-                            },
-                            Err(err) => {
-                                println!("parse message err: {:?}", err);
                             }
-                        }
-                    },
-                    MsgType::RoomOp => {
-                        let op = bincode::deserialize::<RoomManage> (&buf[..]).unwrap();
-                        match mem::transmute(op.op_type) {
-                            OpType::CreateRoom => {
-                                if let Some(room_id) = room_mng.create_room(op.user_id) {
-                                    let msg = RoomManageResult {
-                                        header: Header {
-                                            msg_type: 1,
-                                            len: 5 + 1 + 8 + 4 + 6,
-                                        },
-                                        op_type: 1,
-                                        user_id: op.user_id,
-                                        code: 222,
-                                        room_id: room_id.clone().into_bytes(),
-                                    };
-                                    let data = bincode::serialize::<RoomManageResult>(&msg).unwrap();
-                                    match rsp_tx.send(data).await {
-                                        Ok(()) => {},
-                                        Err(_) => {
-                                            // TODO
-                                        }
-                                    }
-                                    println!("user:{} create room:{}", op.user_id, room_id);
-                                }
-                            },
-                            OpType::JoinRoom => {
-                            },
-                            OpType::LeaveRoom => {
-                            },
-                            OpType::ReadyRoom => {
-                            }
+                        },
+                        Err(err) => {
+                            println!("parse message err: {:?}", err);
                         }
                     }
+                },
+                MsgType::RoomOp => {
+                    let op = bincode::deserialize::<RoomManage> (&buf[..]).unwrap();
+                    let mut msg = RoomManageResult {
+                        header: Header {
+                            msg_type: 1,
+                            len: 5 + 1 + 8 + 4 + 6,
+                        },
+                        op_type: op.op_type,
+                        user_id: op.user_id,
+                        code: 0,
+                        room_id: vec![0; 6],
+                    };
+                    let room_id: Vec<u8> = op.room_id.iter().cloned().collect();
+                    match unsafe { mem::transmute(op.op_type) } {
+                        OpType::CreateRoom => {
+                            let (room_id, code) = room_mng.create_room(op.user_id);
+                            msg.room_id = room_id.clone().into_bytes();
+                            msg.code = unsafe { mem::transmute(code) };
+                            unsafe { println!("user:{} create room:{}", op.user_id.clone(), room_id) };
+                        },
+                        OpType::JoinRoom => {
+                            let (err, code) = room_mng.join_room(op.user_id, String::from_utf8(room_id).unwrap());
+                            msg.room_id = err.into_bytes();
+                            msg.code = unsafe { mem::transmute(code) };
+                        },
+                        OpType::LeaveRoom => {
+                            let (err, code) = room_mng.leave_room(op.user_id, String::from_utf8(room_id).unwrap());
+                            msg.room_id = err.into_bytes();
+                            msg.code = unsafe { mem::transmute(code) };
+                        },
+                        OpType::ReadyRoom => {
+                            let (err, code) = room_mng.ready_room(op.user_id, String::from_utf8(room_id).unwrap());
+                            msg.room_id = err.into_bytes();
+                            msg.code = unsafe { mem::transmute(code) };
+                        }
+                    }
+                    let data = bincode::serialize::<RoomManageResult>(&msg).unwrap();
+                    match rsp_tx.send(data).await {
+                        Ok(()) => {},
+                        Err(_) => {
+                            // TODO
+                        }
+                    }
+                    room_mng.show_room_state();
+
                 }
             }
         }

@@ -28,7 +28,10 @@ pub enum Code {
     JoinOk = 1200,
     RoomFull = 1201,
     RoomInexist = 1202,
-    RreadOk = 1400,
+    AlreadyInRoom = 1203,
+    ReadyOk = 1400,
+    WrongRoom = 1401,
+    NotInRoom = 1402,
 }
 
 #[repr(packed)]
