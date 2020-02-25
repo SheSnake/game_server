@@ -82,11 +82,11 @@ pub async fn server_run(bind_addr: String, sender: Sender<Vec<u8>>, writefd_map:
         tokio::spawn(async move {
             let mut authorized = false;
             let mut user_id: i64 = -1;
-            const authorized_size: usize = 128;
-            let mut buf = [0u8; authorized_size];
+            const AUTHORIZED_SIZE: usize = 128;
+            let mut buf = [0u8; AUTHORIZED_SIZE];
             let mut read_len = 0;
-            while read_len < authorized_size {
-                let process = readfd.read(&mut buf[read_len..authorized_size]);
+            while read_len < AUTHORIZED_SIZE {
+                let process = readfd.read(&mut buf[read_len..AUTHORIZED_SIZE]);
                 match timeout(Duration::from_millis(5000), process).await {
                     Ok(res) => {
                         match res {
@@ -110,7 +110,7 @@ pub async fn server_run(bind_addr: String, sender: Sender<Vec<u8>>, writefd_map:
                 }
             }
 
-            if read_len == authorized_size {
+            if read_len == AUTHORIZED_SIZE {
                 let session_id = String::from_utf8(buf.iter().cloned().collect()).unwrap();
                 if let Some(user_info) = get_userinfo_by_session_id(session_id) {
                     user_id = user_info;
@@ -129,8 +129,8 @@ pub async fn server_run(bind_addr: String, sender: Sender<Vec<u8>>, writefd_map:
                 map.insert(user_id, writefd);
             }
 
-            let user_id = user_id.to_le_bytes();
             println!("user_id:{} authorized", user_id);
+            let user_id = user_id.to_le_bytes();
             let user_id: Vec<u8> = user_id.iter().cloned().collect();
             loop {
                 match session.fd.read(&mut session.buf[session.cur_tail..]).await {
@@ -155,6 +155,7 @@ pub async fn server_run(bind_addr: String, sender: Sender<Vec<u8>>, writefd_map:
                                             let a: &[u8] = &session.buf[session.cur_head..session.cur_head + header.len as usize];
                                             let msg: Vec<u8> = a.iter().cloned().collect();
                                             let msg = [user_id.clone(), msg].concat();
+                                            println!("send msg {:?}", msg);
                                             match sender.send(msg).await {
                                                 Ok(()) => {},
                                                 Err(_) => {

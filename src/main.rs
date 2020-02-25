@@ -74,16 +74,17 @@ async fn main() {
         let header_size = mem::size_of::<Header>();
         loop {
             let buf: &[u8] = &req_rx.recv().await.unwrap();
-            const authorized_info_size: usize = 8;
-            let mut authorized_buf = [0u8; authorized_info_size];
-            for i in 0..authorized_info_size {
+            const AUTHORIZED_INFO_SIZE: usize = 8;
+            let mut authorized_buf = [0u8; AUTHORIZED_INFO_SIZE];
+            for i in 0..AUTHORIZED_INFO_SIZE {
                 authorized_buf[i] = buf[i];
             }
             let authorized_user_id : i64 = i64::from_le_bytes(authorized_buf);
-            let header = bincode::deserialize::<Header> (&buf[authorized_info_size..header_size]).unwrap();
+            let header = bincode::deserialize::<Header> (&buf[AUTHORIZED_INFO_SIZE..AUTHORIZED_INFO_SIZE + header_size]).unwrap();
+            println!("recv msg from user {}", authorized_user_id);
             match unsafe { mem::transmute(header.msg_type) } {
                 MsgType::GameOp => {
-                    match bincode::deserialize::<GameOperation> (&buf[authorized_info_size..]) {
+                    match bincode::deserialize::<GameOperation> (&buf[AUTHORIZED_INFO_SIZE..]) {
                         Ok(game_op) => {
                             unsafe {
                                 println!("recv provide:{:?} target:{}", game_op.provide_cards, game_op.target);
@@ -95,7 +96,7 @@ async fn main() {
                     }
                 },
                 MsgType::RoomOp => {
-                    let op = bincode::deserialize::<RoomManage> (&buf[authorized_info_size..]).unwrap();
+                    let op = bincode::deserialize::<RoomManage> (&buf[AUTHORIZED_INFO_SIZE..]).unwrap();
                     let mut msg = RoomManageResult {
                         header: Header {
                             msg_type: 1,
