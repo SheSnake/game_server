@@ -47,12 +47,13 @@ impl GameRoomMng {
 
     pub fn create_room(&mut self, user_id: i64) -> (String, Code) {
         let err = "".to_string();
+        if self.user_rooms.contains_key(&user_id) {
+            let room_id = self.user_rooms.get(&user_id).unwrap().clone();
+            return (room_id, Code::CreateFail);
+        }
         if self.act_rooms.len() > self.max_room_num {
             return (err, Code::CreateFail);
         };
-        if self.user_rooms.contains_key(&user_id) {
-            return (err, Code::CreateFail);
-        }
         let mut room_id = self.random_room_id();
         while self.act_rooms.contains_key(&room_id) {
             room_id = self.random_room_id();

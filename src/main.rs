@@ -72,9 +72,9 @@ async fn main() {
     
     tokio::spawn(async move {
         let header_size = mem::size_of::<Header>();
+        const AUTHORIZED_INFO_SIZE: usize = 8;
         loop {
             let buf: &[u8] = &req_rx.recv().await.unwrap();
-            const AUTHORIZED_INFO_SIZE: usize = 8;
             let mut authorized_buf = [0u8; AUTHORIZED_INFO_SIZE];
             for i in 0..AUTHORIZED_INFO_SIZE {
                 authorized_buf[i] = buf[i];
