@@ -4,9 +4,7 @@ use rand::{ thread_rng };
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use super::super::server_net::message::Code;
-use tokio::sync::{ Mutex };
 use tokio::sync::mpsc::{ Sender };
-use std::sync::Arc;
 
 pub enum RoomType {
     MAJIANG = 1,

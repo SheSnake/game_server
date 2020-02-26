@@ -201,10 +201,6 @@ impl GameState {
         self.cur_player
     }
 
-    pub fn get_player_op_by_card(&self, player: usize, card_id: u8) -> Option<Vec<MajiangOperation>> {
-        None
-    }
-
     pub fn get_player_win_op(&self, player: usize) -> Option<MajiangOperation> {
         self.player_state[player].get_win_op();
         None
@@ -298,7 +294,6 @@ impl GameState {
     }
 
     pub fn print_state(&self) {
-        return;
         let mut in_wait_rsp = false;
         match self.cur_state {
             StateType::WaitPop => {

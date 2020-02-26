@@ -44,7 +44,6 @@ async fn main() {
         let writefd_copy = writefd.clone();
         let mut rt =  Runtime::new().unwrap();
         rt.spawn(async move {
-            let header_size = mem::size_of::<Header>();
             const AUTHORIZED_INFO_SIZE: usize = 8;
             loop {
                 let buf: &[u8] = &rsp_rx.recv().await.unwrap();
@@ -186,7 +185,8 @@ async fn main() {
                             }
                         }
                     }
-                }
+                },
+                _ => {}
             }
         }
     });

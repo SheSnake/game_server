@@ -11,6 +11,8 @@ pub enum MsgType {
      * game op
      */
     GameOp = 0,
+
+    GameUpdate = 2,
 }
 
 #[repr(i8)]
@@ -45,21 +47,11 @@ pub struct Header {
     pub len: i32, // message length, include header and payload
 }
 
-//impl Copy for Header {}
-//impl Clone for Header {
-//    fn clone(&self) -> Header {
-//        return Header {
-//            msg_type: self.msg_type,
-//            len: self.len,
-//        };
-//    }
-//}
-
 /*
  * used for sync game time between client and server
  */
 
-#[derive(Deserialize, Copy, Clone)]
+#[derive(Serialize, Deserialize, Copy, Clone)]
 #[repr(packed)]
 pub struct GameBasicInfo {
     pub cur_game_step: i64,
@@ -76,6 +68,16 @@ pub struct GameBasicInfo {
 #[derive(Deserialize)]
 #[repr(packed)]
 pub struct GameOperation {
+    pub header: Header,
+    pub game_info: GameBasicInfo,
+    pub op_type: i8,
+    pub target: u8,
+    pub provide_cards: Vec<u8>, // this is i64 + payload: [u8]
+}
+
+#[derive(Serialize, Deserialize)]
+#[repr(packed)]
+pub struct GameUpdate {
     pub header: Header,
     pub game_info: GameBasicInfo,
     pub op_type: i8,

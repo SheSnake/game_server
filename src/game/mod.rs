@@ -7,6 +7,11 @@ use rand::{ thread_rng };
 use rand::seq::SliceRandom;
 use tokio::sync::{ Mutex };
 use tokio::sync::mpsc::{ Sender, Receiver };
+use std::time::Duration;
+use tokio::time::timeout;
+use std::sync::Arc;
+use std::mem;
+use super::server_net::message::*;
 
 use player::Player;
 
@@ -26,14 +31,15 @@ pub struct Game {
     other_ops: Vec<Option<Vec<MajiangOperation>>>,
     recv_other_ops: Vec<Option<MajiangOperation>>,
     game_notifier: Sender<Vec<u8>>,
+    game_receiver: Arc<Mutex<Receiver<Vec<u8>>>>,
     default_base_score: i32,
     base_score: i32,
     cur_banker: usize,
-    max_wait_second: i32,
+    max_wait_second: u64,
 }
 
 impl Game {
-    pub fn new(players: Vec<Player>, notifier: Sender<Vec<u8>>, max_wait_second: i32) -> Game {
+    pub fn new(players: Vec<Player>, notifier: Sender<Vec<u8>>, receiver: Arc<Mutex<Receiver<Vec<u8>>>>, max_wait_second: u64) -> Game {
         let num = players.len();
         return Game {
             players: players,
@@ -42,6 +48,7 @@ impl Game {
             recv_other_ops: Vec::new(),
             cur_player_ops: None,
             game_notifier: notifier,
+            game_receiver: receiver,
             max_wait_second: max_wait_second,
             default_base_score: 5,
             base_score: 5,
@@ -110,7 +117,7 @@ impl Game {
 
             loop {
                 let cur_player = self.state.cur_player();
-                let cur_player_op = self.wait_for_cur_player_op(8);
+                let cur_player_op = self.wait_for_cur_player_op(self.max_wait_second * 1000).await;
                 match cur_player_op.op {
                     Action::Pop => {
                         // 3. cur_player pop an card
@@ -168,6 +175,40 @@ impl Game {
     async fn notify_operation(&self, player: usize, ops: &Vec<MajiangOperation>) {
     }
 
+    async fn send_data(&mut self, user_id: &i64, data: Vec<u8>) {
+        let user_id = user_id.to_le_bytes();
+        let user_id: Vec<u8> = user_id.iter().cloned().collect();
+        let data = [user_id.clone(), data].concat();
+        match self.game_notifier.send(data).await {
+            Ok(()) => {},
+            Err(_) => {
+                // TODO
+            }
+        }
+    }
+
+    async fn notify_game_update(&mut self, player: usize, op: &MajiangOperation) {
+        let provides_len = mem::size_of::<Header>() +  mem::size_of::<GameBasicInfo>() + 1 + 1 + 8 + op.on_hand.len();
+        let action_user_id = self.players[self.state.cur_player].id;
+        let recv_user_id = self.players[player].id;
+        let update = GameUpdate {
+            header: Header {
+                msg_type: unsafe { mem::transmute(MsgType::GameUpdate) }, 
+                len: provides_len as i32,
+            },
+            game_info: GameBasicInfo {
+                cur_game_step: self.state.cur_step,
+                player_id: self.state.cur_player as u8,
+                user_id: action_user_id,
+            },
+            op_type: 1,
+            target: op.target,
+            provide_cards: op.on_hand.clone(),
+        };
+        let data: Vec<u8> = bincode::serialize::<GameUpdate>(&update).unwrap();
+        self.send_data(&recv_user_id, data).await;
+    }
+
     fn mock_recv_player_pop(&mut self, player: usize) -> Option<MajiangOperation> {
         let player_state = self.state.get_player_state(player);
         let cards = player_state.on_hand_card_id();
@@ -219,11 +260,43 @@ impl Game {
         return op.unwrap();
     }
 
-    fn wait_for_cur_player_op(&mut self, timeout: u8) -> MajiangOperation {
-        return self.mock_recv_cur_player_op();
+    async fn read_msg(&mut self, max_wait: u64) -> Option<Vec<u8>> {
+        {
+            let mut receiver = self.game_receiver.lock().await;
+            let process = receiver.recv();
+            match timeout(Duration::from_millis(max_wait), process).await {
+                Ok(res) => {
+                    return Some(res.unwrap())
+                },
+                Err(_) => {
+                    return None;
+                }
+            }
+        }
+    }
+
+    async fn wait_for_cur_player_op(&mut self, timeout: u64) -> MajiangOperation {
+        let mut elapse = 0;
+        let mut recv = false;
+        while elapse < timeout {
+            if let Some(buf) = self.read_msg(20).await {
+                let header_size = mem::size_of::<Header>();
+                let header = bincode::deserialize::<Header> (&buf[..header_size]).unwrap();
+                // ...
+                println!("{}", header.msg_type);
+                recv = true;
+            }
+            elapse += 20;
+        }
+        if !recv {
+            println!("recv rsp timeout");
+            return self.mock_recv_cur_player_op();
+        } else {
+            return self.mock_recv_cur_player_op();
+        }
     }
     
-    fn wait_for_other_player_op(&mut self, timeout: u8) -> Option<(usize, MajiangOperation)> {
+    fn wait_for_other_player_op(&mut self, timeout: u64) -> Option<(usize, MajiangOperation)> {
         self.recv_other_ops = vec![None, None, None, None];
         self.mock_recv_other_player_op();
         let mut cur_player = 0;
@@ -253,12 +326,11 @@ impl Game {
 
 pub struct StartGame {
     players: Vec<Player>,
-    start_score: i32,
     end_score: i32,
     cur_round: i32,
     game_notifier: Sender<Vec<u8>>,
-    game_receiver: Receiver<Vec<u8>>,
-    max_wait_second: i32,
+    game_receiver: Arc<Mutex<Receiver<Vec<u8>>>>,
+    max_wait_second: u64,
 }
 
 impl StartGame {
@@ -274,11 +346,10 @@ impl StartGame {
         }
         return StartGame {
             players: player_state,
-            start_score: start_score,
             end_score: 0,
             cur_round: 1,
             game_notifier: notifier,
-            game_receiver: receiver,
+            game_receiver: Arc::new(Mutex::new(receiver)),
             max_wait_second: 1,
         };
     }
@@ -293,17 +364,17 @@ impl StartGame {
     }
 
     pub async fn start(&mut self) {
-        let mut round = Game::new(self.players.clone(), self.game_notifier.clone(), self.max_wait_second);
+        let mut round = Game::new(self.players.clone(), self.game_notifier.clone(), self.game_receiver.clone(), self.max_wait_second);
         let mut next_banker = false;
         while !self.over() {
             round.init();
             round.start().await;
             self.cur_round += 1;
-            if let Some(win_user_id) = round.get_win_user_id() {
+            if let Some(_) = round.get_win_user_id() {
                 next_banker = true
             }
             println!("round: {} over", self.cur_round - 1);
-            for (ix, player) in self.players.iter_mut().enumerate() {
+            for player in self.players.iter_mut() {
                 player.score += round.get_user_score(&player.id);
                 println!("player: {} score:{}", player.id, player.score);
             }
