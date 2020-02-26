@@ -9,12 +9,24 @@ use std::mem;
 use game::room::GameRoomMng;
 extern crate bincode;
 extern crate tokio;
-use tokio::sync::mpsc::channel;
-use tokio::sync::Mutex;
+use tokio::sync::mpsc::{ channel, Sender };
+use tokio::sync::{ Mutex };
 use tokio::runtime::Runtime;
 use std::sync::Arc;
 use tokio::io::{ WriteHalf, AsyncWriteExt };
 use tokio::net::{ TcpStream};
+
+async fn send_data(sender: &mut Sender<Vec<u8>>, user_id: &i64, data: Vec<u8>) {
+    let user_id = user_id.to_le_bytes();
+    let user_id: Vec<u8> = user_id.iter().cloned().collect();
+    let data = [user_id.clone(), data].concat();
+    match sender.send(data).await {
+        Ok(()) => {},
+        Err(_) => {
+            // TODO
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -52,14 +64,19 @@ async fn main() {
         let writefd_copy = writefd.clone();
         let mut rt =  Runtime::new().unwrap();
         rt.spawn(async move {
+            let header_size = mem::size_of::<Header>();
+            const AUTHORIZED_INFO_SIZE: usize = 8;
             loop {
                 let buf: &[u8] = &rsp_rx.recv().await.unwrap();
-                let op = bincode::deserialize::<RoomManageResult> (&buf[..]).unwrap();
-                unsafe {
-                    println!("open room id:{:?}", op.room_id);
+                let mut authorized_buf = [0u8; AUTHORIZED_INFO_SIZE];
+                for i in 0..AUTHORIZED_INFO_SIZE {
+                    authorized_buf[i] = buf[i];
+                }
+                let authorized_user_id : i64 = i64::from_le_bytes(authorized_buf);
+                {
                     let mut map = writefd_copy.lock().await;
-                    if let Some(fd) = map.get_mut(&op.user_id) {
-                        match fd.write(buf).await {
+                    if let Some(fd) = map.get_mut(&authorized_user_id) {
+                        match fd.write(&buf[AUTHORIZED_INFO_SIZE..]).await {
                             Ok(_) => {},
                             Err(_) => {},
                         }
@@ -100,7 +117,7 @@ async fn main() {
                     let mut msg = RoomManageResult {
                         header: Header {
                             msg_type: 1,
-                            len: 5 + 1 + 8 + 4 + 6,
+                            len: 5 + 1 + 8 + 4 + 14,
                         },
                         op_type: op.op_type,
                         user_id: op.user_id,
@@ -108,6 +125,17 @@ async fn main() {
                         room_id: vec![0; 6],
                     };
                     let room_id: Vec<u8> = op.room_id.iter().cloned().collect();
+                    let room_id = String::from_utf8(room_id).unwrap();
+                    let update = RoomUpdate {
+                        header: Header {
+                            msg_type: 1,
+                            len: 5 + 1 + 8 + 14,
+                        },
+                        op_type: op.op_type,
+                        user_id: authorized_user_id.clone(),
+                        room_id: room_id.clone().into_bytes(),
+                    };
+                    let mut need_broadcast = false;
                     match unsafe { mem::transmute(op.op_type) } {
                         OpType::CreateRoom => {
                             let (room_id, code) = room_mng.create_room(op.user_id);
@@ -116,29 +144,65 @@ async fn main() {
                             unsafe { println!("user:{} create room:{}", op.user_id.clone(), room_id) };
                         },
                         OpType::JoinRoom => {
-                            let (err, code) = room_mng.join_room(op.user_id, String::from_utf8(room_id).unwrap());
+                            let (err, code) = room_mng.join_room(op.user_id, &room_id);
                             msg.room_id = err.into_bytes();
                             msg.code = unsafe { mem::transmute(code) };
+                            need_broadcast = true;
                         },
                         OpType::LeaveRoom => {
-                            let (err, code) = room_mng.leave_room(op.user_id, String::from_utf8(room_id).unwrap());
+                            let (err, code) = room_mng.leave_room(op.user_id, &room_id);
                             msg.room_id = err.into_bytes();
                             msg.code = unsafe { mem::transmute(code) };
+                            need_broadcast = true;
                         },
                         OpType::ReadyRoom => {
-                            let (err, code) = room_mng.ready_room(op.user_id, String::from_utf8(room_id).unwrap());
+                            let (err, code) = room_mng.ready_room(op.user_id, &room_id);
                             msg.room_id = err.into_bytes();
                             msg.code = unsafe { mem::transmute(code) };
-                        }
+                            need_broadcast = true;
+                        },
+                        OpType::CancelReady => {
+                            let (err, code) = room_mng.cancel_ready(op.user_id, &room_id);
+                            msg.room_id = err.into_bytes();
+                            msg.code = unsafe { mem::transmute(code) };
+                            need_broadcast = true;
+                        },
+                        _ => {}
                     }
-                    let data = bincode::serialize::<RoomManageResult>(&msg).unwrap();
-                    match rsp_tx.send(data).await {
-                        Ok(()) => {},
-                        Err(_) => {
-                            // TODO
-                        }
-                    }
+                    let data: Vec<u8> = bincode::serialize::<RoomManageResult>(&msg).unwrap();
+                    println!("data len:{}", data.len());
+                    send_data(&mut rsp_tx, &authorized_user_id, data).await;
                     room_mng.show_room_state();
+
+                    if !need_broadcast {
+                        continue;
+                    }
+                    if let Some(room_users) = room_mng.get_room_user_id(&room_id) {
+                        for user_id in room_users.iter() {
+                            if *user_id == authorized_user_id {
+                                continue;
+                            }
+                            let data: Vec<u8> = bincode::serialize::<RoomUpdate>(&update).unwrap();
+                            send_data(&mut rsp_tx, user_id, data).await;
+                        }
+                        if let Some(all_ready) = room_mng.all_ready(&room_id) {
+                            if all_ready {
+                                let update = RoomUpdate {
+                                    header: Header {
+                                        msg_type: 1,
+                                        len: 5 + 1 + 8 + 14,
+                                    },
+                                    op_type: unsafe { mem::transmute(OpType::StartRoom) },
+                                    user_id: 0,
+                                    room_id: room_id.clone().into_bytes(),
+                                };
+                                for user_id in room_users.iter() {
+                                    let data: Vec<u8> = bincode::serialize::<RoomUpdate>(&update).unwrap();
+                                    send_data(&mut rsp_tx, user_id, data).await;
+                                }
+                            }
+                        }
+                    }
 
                 }
             }

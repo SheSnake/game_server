@@ -19,6 +19,8 @@ pub enum OpType {
     JoinRoom = 2,
     LeaveRoom = 3,
     ReadyRoom = 4,
+    StartRoom = 5,
+    CancelReady = 6,
 }
 
 #[repr(i32)]
@@ -30,6 +32,7 @@ pub enum Code {
     RoomInexist = 1202,
     AlreadyInRoom = 1203,
     ReadyOk = 1400,
+    CancelReadyOk = 1600,
     WrongRoom = 1401,
     NotInRoom = 1402,
 }
@@ -102,5 +105,14 @@ pub struct RoomManageResult {
     pub op_type: i8,
     pub user_id: i64,
     pub code: i32,
+    pub room_id: Vec<u8>, // 000000 for create
+}
+
+#[derive(Serialize, Deserialize)]
+#[repr(packed)]
+pub struct RoomUpdate {
+    pub header: Header,
+    pub op_type: i8,
+    pub user_id: i64,
     pub room_id: Vec<u8>, // 000000 for create
 }
