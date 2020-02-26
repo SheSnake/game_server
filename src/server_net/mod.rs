@@ -6,8 +6,6 @@ extern crate bincode;
 extern crate chrono;
 use std::mem;
 use std::sync::{Arc};
-use chrono::offset::Utc;
-use chrono::TimeZone;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{ Sender };

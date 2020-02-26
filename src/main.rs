@@ -16,6 +16,8 @@ use std::sync::Arc;
 use tokio::io::{ WriteHalf, AsyncWriteExt };
 use tokio::net::{ TcpStream};
 
+use game::*;
+
 async fn send_data(sender: &mut Sender<Vec<u8>>, user_id: &i64, data: Vec<u8>) {
     let user_id = user_id.to_le_bytes();
     let user_id: Vec<u8> = user_id.iter().cloned().collect();
@@ -30,32 +32,10 @@ async fn send_data(sender: &mut Sender<Vec<u8>>, user_id: &i64, data: Vec<u8>) {
 
 #[tokio::main]
 async fn main() {
-    let p1 = game::player::Player {
-        id: 1,
-        score: 0,
-        fd: 0,
-    };
-    let p2 = game::player::Player {
-        id: 2,
-        score: 0,
-        fd: 0,
-    };
-    let p3 = game::player::Player {
-        id: 3,
-        score: 0,
-        fd: 0,
-    };
-    let p4 = game::player::Player {
-        id: 4,
-        score: 0,
-        fd: 0,
-    };
-
-
     let (req_tx, mut req_rx)= channel::<Vec<u8>>(4096);
     let (mut rsp_tx, mut rsp_rx)= channel::<Vec<u8>>(4096);
     let mut room_mng = GameRoomMng::new(3);
-    let mut _round = game::Game::new(vec![p1, p2, p3, p4]);
+    //let mut _round = game::Game::new(vec![p1, p2, p3, p4]);
     //round.init();
     //round.start();
     let t1 = thread::spawn(move || {
@@ -200,10 +180,12 @@ async fn main() {
                                     let data: Vec<u8> = bincode::serialize::<RoomUpdate>(&update).unwrap();
                                     send_data(&mut rsp_tx, user_id, data).await;
                                 }
+                                let (game_msg_tx, game_msg_rx) = channel::<Vec<u8>>(4096);
+                                room_mng.set_room_notifier(&room_id, game_msg_tx);
+                                tokio::spawn(start_game(room_users.clone(), rsp_tx.clone(), game_msg_rx));
                             }
                         }
                     }
-
                 }
             }
         }

@@ -109,21 +109,21 @@ impl StateType {
 }
 
 pub struct GameState {
-    num: i64,
-    cur_step: i64,
-    cur_state: StateType,
-    cards: Vec<Majiang>,
-    player_state: Vec<MajiangPlayerState>,
-    hide_card: Vec<u8>,
-    win_player: usize,
-    win_method: Action,
-    cur_player: usize,
-    cur_card_ix: usize,
-    cur_pop_card: u8,
+    pub num: usize,
+    pub cur_step: i64,
+    pub cur_state: StateType,
+    pub cards: Vec<Majiang>,
+    pub player_state: Vec<MajiangPlayerState>,
+    pub hide_card: Vec<u8>,
+    pub win_player: usize,
+    pub win_method: Action,
+    pub cur_player: usize,
+    pub cur_card_ix: usize,
+    pub cur_pop_card: u8,
 }
 
 impl GameState {
-    pub fn new(num: i64) -> GameState {
+    pub fn new(num: usize) -> GameState {
         GameState {
             num: num,
             cur_step: 0,
@@ -298,6 +298,7 @@ impl GameState {
     }
 
     pub fn print_state(&self) {
+        return;
         let mut in_wait_rsp = false;
         match self.cur_state {
             StateType::WaitPop => {

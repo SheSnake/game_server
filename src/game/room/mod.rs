@@ -1,8 +1,12 @@
 extern crate rand;
+extern crate tokio;
 use rand::{ thread_rng };
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use super::super::server_net::message::Code;
+use tokio::sync::{ Mutex };
+use tokio::sync::mpsc::{ Sender };
+use std::sync::Arc;
 
 pub enum RoomType {
     MAJIANG = 1,
@@ -21,6 +25,7 @@ pub struct GameRoomMng {
     letters: Vec<char>,
     act_rooms: HashMap<String, GameRoom>,
     user_rooms: HashMap<i64, String>,
+    start_game: HashMap<String, Sender<Vec<u8>>>,
     max_room_num: usize,
 }
 
@@ -30,6 +35,7 @@ impl GameRoomMng {
             letters: "QAZWSXEDCRFVTGB1234567890".to_string().chars().collect(),
             act_rooms: HashMap::new(),
             user_rooms: HashMap::new(),
+            start_game: HashMap::new(),
             max_room_num: max_room_num,
         };
     }
@@ -152,6 +158,14 @@ impl GameRoomMng {
         return (err, Code::NotInRoom);
     }
 
+    pub fn set_room_notifier(&mut self, room_id: &String, sender: Sender<Vec<u8>>) {
+        if let Some(room) = self.act_rooms.get(room_id) {
+            if room.readys.len() == room.max_player {
+                self.start_game.insert(room_id.clone(), sender);
+            }
+        }
+    }
+
     pub fn get_room_user_id(&self, room_id: &String) -> Option<Vec<i64>> {
         if let Some(room) = self.act_rooms.get(room_id) {
             return Some(room.players.clone());
@@ -166,3 +180,4 @@ impl GameRoomMng {
         }
     }
 }
+

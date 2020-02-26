@@ -1,8 +1,8 @@
-
+#[derive(Copy, Clone)]
 pub struct Player {
     pub id: i64,
-    pub score: i64,
-    pub fd: i64, /* connection */
+    pub pos: usize,
+    pub score: i32,
 }
 
 impl Player {

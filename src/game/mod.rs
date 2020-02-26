@@ -2,8 +2,11 @@ pub mod player;
 pub mod room;
 
 extern crate rand;
+extern crate tokio;
 use rand::{ thread_rng };
 use rand::seq::SliceRandom;
+use tokio::sync::{ Mutex };
+use tokio::sync::mpsc::{ Sender, Receiver };
 
 use player::Player;
 
@@ -22,18 +25,28 @@ pub struct Game {
     cur_player_ops: Option<Vec<MajiangOperation>>,
     other_ops: Vec<Option<Vec<MajiangOperation>>>,
     recv_other_ops: Vec<Option<MajiangOperation>>,
+    game_notifier: Sender<Vec<u8>>,
+    default_base_score: i32,
+    base_score: i32,
+    cur_banker: usize,
+    max_wait_second: i32,
 }
 
 impl Game {
-    pub fn new(players: Vec<Player>) -> Game {
-        let num = players.len() as i64;
-        Game {
+    pub fn new(players: Vec<Player>, notifier: Sender<Vec<u8>>, max_wait_second: i32) -> Game {
+        let num = players.len();
+        return Game {
             players: players,
             state: GameState::new(num),
             other_ops: Vec::new(),
             recv_other_ops: Vec::new(),
             cur_player_ops: None,
-        }
+            game_notifier: notifier,
+            max_wait_second: max_wait_second,
+            default_base_score: 5,
+            base_score: 5,
+            cur_banker: 0,
+        };
     }
 
     pub fn init(&mut self) {
@@ -42,7 +55,45 @@ impl Game {
         self.state.print_state();
     }
 
-    pub fn start(&mut self) {
+    pub fn reset(&mut self, next_banker: bool, players: Vec<Player>) {
+        self.players = players;
+        self.state = GameState::new(self.players.len());
+        self.other_ops = Vec::new();
+        self.cur_player_ops = None;
+        if next_banker {
+            self.base_score = self.default_base_score;
+            self.cur_banker = (self.cur_banker + 1) % self.players.len();
+        } else {
+            self.base_score += 1;
+        }
+    }
+
+    pub fn get_win_user_id(&self) -> Option<i64> {
+        if self.state.win_player < 4 {
+            return Some(self.players[self.state.win_player].id);
+        }
+        return None;
+    }
+
+    pub fn get_user_score(&self, user_id: &i64) -> i32 {
+        for (ix, &player) in self.players.iter().enumerate() {
+            if *user_id == player.id {
+                if self.state.win_player >= 4 && ix == self.cur_banker {
+                    return -self.base_score * 3;
+                }
+                if self.state.win_player >= 4 && ix != self.cur_banker {
+                    return self.base_score;
+                }
+                if self.state.win_player < 4 && ix == self.state.win_player {
+                    return self.base_score * 3;
+                }
+                return -self.base_score;
+            }
+        }
+        return 0;
+    }
+
+    pub async fn start(&mut self) {
         while !self.state.over() {
             // 1. deal next card to cur player
             self.state.deal_next_card();
@@ -51,7 +102,7 @@ impl Game {
             if let Some(ops) = self.state.get_cur_player_ops() {
                 // notify cur_player if found
                 let cur_player = self.state.cur_player();
-                self.notify_operation(cur_player, &ops);
+                self.notify_operation(cur_player, &ops).await;
                 self.cur_player_ops = Some(ops);
             } else {
                 self.cur_player_ops = None;
@@ -70,7 +121,7 @@ impl Game {
                             let player = (cur_player + i) % 4;
                             // figure out other rsp op for this pop card
                             if let Some(ops) = self.state.get_player_rsp_for_pop_card(player) {
-                                self.notify_operation(player, &ops);
+                                self.notify_operation(player, &ops).await;
                                 other_ops[player] = Some(ops);
                             }
                         }
@@ -114,7 +165,7 @@ impl Game {
         }
     }
 
-    fn notify_operation(&self, player: usize, ops: &Vec<MajiangOperation>) {
+    async fn notify_operation(&self, player: usize, ops: &Vec<MajiangOperation>) {
     }
 
     fn mock_recv_player_pop(&mut self, player: usize) -> Option<MajiangOperation> {
@@ -198,6 +249,72 @@ impl Game {
             None
         }
     }
+}
 
+pub struct StartGame {
+    players: Vec<Player>,
+    start_score: i32,
+    end_score: i32,
+    cur_round: i32,
+    game_notifier: Sender<Vec<u8>>,
+    game_receiver: Receiver<Vec<u8>>,
+    max_wait_second: i32,
+}
+
+impl StartGame {
+    pub fn new(players: Vec<i64>, notifier: Sender<Vec<u8>>, receiver: Receiver<Vec<u8>>) -> StartGame {
+        let mut player_state = Vec::new();
+        let start_score = 100;
+        for (ix, &user_id) in players.iter().enumerate() {
+            player_state.push({ Player {
+                id: user_id,
+                pos: ix,
+                score: start_score,
+            }});
+        }
+        return StartGame {
+            players: player_state,
+            start_score: start_score,
+            end_score: 0,
+            cur_round: 1,
+            game_notifier: notifier,
+            game_receiver: receiver,
+            max_wait_second: 1,
+        };
+    }
+
+    pub fn over(&self) -> bool {
+        for player in self.players.iter() {
+            if player.score <= self.end_score {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub async fn start(&mut self) {
+        let mut round = Game::new(self.players.clone(), self.game_notifier.clone(), self.max_wait_second);
+        let mut next_banker = false;
+        while !self.over() {
+            round.init();
+            round.start().await;
+            self.cur_round += 1;
+            if let Some(win_user_id) = round.get_win_user_id() {
+                next_banker = true
+            }
+            println!("round: {} over", self.cur_round - 1);
+            for (ix, player) in self.players.iter_mut().enumerate() {
+                player.score += round.get_user_score(&player.id);
+                println!("player: {} score:{}", player.id, player.score);
+            }
+            round.reset(next_banker, self.players.clone());
+
+        }
+    }
+}
+
+pub async fn start_game(players: Vec<i64>, notifier: Sender<Vec<u8>>, receiver: Receiver<Vec<u8>>) {
+    let mut game = StartGame::new(players, notifier, receiver);
+    game.start().await;
 
 }
