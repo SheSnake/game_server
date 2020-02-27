@@ -71,7 +71,8 @@ async fn main() {
         let header_size = mem::size_of::<Header>();
         const AUTHORIZED_INFO_SIZE: usize = 8;
         loop {
-            let buf: &[u8] = &req_rx.recv().await.unwrap();
+            let msg = req_rx.recv().await.unwrap();
+            let buf: &[u8] = &msg;
             let mut authorized_buf = [0u8; AUTHORIZED_INFO_SIZE];
             for i in 0..AUTHORIZED_INFO_SIZE {
                 authorized_buf[i] = buf[i];
@@ -84,7 +85,12 @@ async fn main() {
                     match bincode::deserialize::<GameOperation> (&buf[AUTHORIZED_INFO_SIZE..]) {
                         Ok(game_op) => {
                             unsafe {
-                                println!("recv provide:{:?} target:{}", game_op.provide_cards, game_op.target);
+                                let room_id: Vec<u8> = game_op.game_info.room_id.iter().cloned().collect();
+                                let room_id = String::from_utf8(room_id).unwrap();
+                                if let Some(mut sender) = room_mng.get_room_notifier(&room_id) {
+                                    println!("recv provide:{:?} target:{}", game_op.provide_cards, game_op.target);
+                                    sender.send(msg).await;
+                                }
                             }
                         },
                         Err(err) => {
@@ -182,7 +188,7 @@ async fn main() {
                                 }
                                 let (game_msg_tx, game_msg_rx) = channel::<Vec<u8>>(4096);
                                 room_mng.set_room_notifier(&room_id, game_msg_tx);
-                                tokio::spawn(start_game(room_users.clone(), rsp_tx.clone(), game_msg_rx));
+                                tokio::spawn(start_game(room_id.clone(), room_users.clone(), rsp_tx.clone(), game_msg_rx));
                             }
                         }
                     }

@@ -294,6 +294,7 @@ impl GameState {
     }
 
     pub fn print_state(&self) {
+        return;
         let mut in_wait_rsp = false;
         match self.cur_state {
             StateType::WaitPop => {

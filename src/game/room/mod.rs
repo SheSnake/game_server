@@ -164,6 +164,13 @@ impl GameRoomMng {
         }
     }
 
+    pub fn get_room_notifier(&mut self, room_id: &String) -> Option<Sender<Vec<u8>>> {
+        if let Some(sender) = self.start_game.get(room_id) {
+            return Some(sender.clone());
+        }
+        return None;
+    }
+
     pub fn get_room_user_id(&self, room_id: &String) -> Option<Vec<i64>> {
         if let Some(room) = self.act_rooms.get(room_id) {
             return Some(room.players.clone());

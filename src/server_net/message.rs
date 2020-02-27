@@ -17,6 +17,8 @@ pub enum MsgType {
     GameUpdate = 2,
 
     GameRoundUpdate = 4,
+
+    QueryGameState = 5,
 }
 
 #[repr(i8)]
@@ -68,6 +70,7 @@ pub struct GameBasicInfo {
     pub cur_game_round: i32,
     pub user_pos: u8,
     pub user_id: i64,
+    pub room_id: [u8; 6],
 }
 
 
