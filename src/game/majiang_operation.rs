@@ -20,11 +20,22 @@ pub enum Action {
 
 use super::majiang_model::Majiang;
 
+#[derive(Clone)]
 pub struct MajiangOperation {
     pub op: Action,
     pub on_hand: Vec<u8>,
     pub target: u8,
 }
+
+//impl Copy for MajiangOperation {
+//    fn new(&self) -> MajiangOperation {
+//        return MajiangOperation {
+//            op: self.op,
+//            on_hand: self.on_hand.clone(),
+//            target: self.target,
+//        };
+//    }
+//}
 
 impl Action {
     pub fn priority(&self) -> u8 {

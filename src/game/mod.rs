@@ -189,7 +189,7 @@ impl Game {
 
             loop {
                 let cur_player = self.state.cur_player();
-                let cur_player_op = self.wait_for_cur_player_op(self.max_wait_second * 30).await;
+                let cur_player_op: MajiangOperation = self.wait_for_cur_player_op(self.max_wait_second * 30).await;
                 match cur_player_op.op {
                     Action::Pop => {
                         // 3. cur_player pop an card
@@ -381,42 +381,6 @@ impl Game {
         return op.unwrap();
     }
 
-    async fn read_msg(&mut self, max_wait: u64) -> Option<Vec<u8>> {
-        {
-            let mut receiver = self.game_receiver.lock().await;
-            let process = receiver.recv();
-            match timeout(Duration::from_millis(max_wait), process).await {
-                Ok(res) => {
-                    return Some(res.unwrap())
-                },
-                Err(_) => {
-                    return None;
-                }
-            }
-        }
-    }
-
-    async fn wait_for_cur_player_op(&mut self, timeout: u64) -> MajiangOperation {
-        let mut elapse = 0;
-        let mut recv = false;
-        while elapse < timeout {
-            if let Some(buf) = self.read_msg(20).await {
-                let header_size = mem::size_of::<Header>();
-                let header = bincode::deserialize::<Header> (&buf[..header_size]).unwrap();
-                // ...
-                println!("{}", header.msg_type);
-                recv = true;
-            }
-            elapse += 20;
-        }
-        if !recv {
-            println!("recv rsp timeout");
-            return self.mock_recv_cur_player_op();
-        } else {
-            return self.mock_recv_cur_player_op();
-        }
-    }
-
     fn parse_authorized_info(&self, data: &Vec<u8>) -> i64 {
         const AUTHORIZED_INFO_SIZE: usize = 8;
         let mut authorized_buf = [0u8; AUTHORIZED_INFO_SIZE];
@@ -450,6 +414,42 @@ impl Game {
         // TODO: more check
         return true;
     }
+
+    async fn read_msg(&mut self, max_wait: u64) -> Option<Vec<u8>> {
+        {
+            let mut receiver = self.game_receiver.lock().await;
+            let process = receiver.recv();
+            match timeout(Duration::from_millis(max_wait), process).await {
+                Ok(res) => {
+                    return Some(res.unwrap())
+                },
+                Err(_) => {
+                    return None;
+                }
+            }
+        }
+    }
+
+    async fn read_game_operation_and_handle_query(&mut self) -> Option<(i64, GameOperation)> {
+        if let Some(buf) = self.read_msg(20).await {
+            let user_id = self.parse_authorized_info(&buf);
+            const AUTHORIZED_INFO_SIZE: usize = 8;
+            let header_size = mem::size_of::<Header>();
+            let header = bincode::deserialize::<Header> (&buf[AUTHORIZED_INFO_SIZE..AUTHORIZED_INFO_SIZE + header_size]).unwrap();
+            match unsafe { mem::transmute(header.msg_type) } {
+                MsgType::GameOp => {
+                    let op = bincode::deserialize::<GameOperation> (&buf[AUTHORIZED_INFO_SIZE..]).unwrap();
+                    return Some((user_id, op));
+                },
+                MsgType::QueryGameState => {
+                    self.handle_query_state(user_id);
+                },
+                _ => {
+                }
+            }
+        }
+        return None;
+    }
     
     async fn wait_for_other_player_op(&mut self, timeout: u64) -> Option<(usize, MajiangOperation)> {
         struct TempOp {
@@ -462,11 +462,7 @@ impl Game {
                 for op in player_ops.iter() {
                     possible_ops.push(TempOp {
                         player: i,
-                        op: MajiangOperation {
-                            op: op.op,
-                            on_hand: op.on_hand.clone(),
-                            target: op.target,
-                        },
+                        op: op.clone(),
                     });
                 }
             }
@@ -476,66 +472,63 @@ impl Game {
         if possible_ops.len() > 0 {
             let mut elapse = 0;
             while elapse < timeout {
-                if let Some(buf) = self.read_msg(20).await {
-                    let user_id = self.parse_authorized_info(&buf);
+                if let Some((user_id, op)) = self.read_game_operation_and_handle_query().await {
                     let pos = self.get_user_pos(user_id);
-                    const AUTHORIZED_INFO_SIZE: usize = 8;
-                    let header_size = mem::size_of::<Header>();
-                    let header = bincode::deserialize::<Header> (&buf[AUTHORIZED_INFO_SIZE..AUTHORIZED_INFO_SIZE + header_size]).unwrap();
-                    match unsafe { mem::transmute(header.msg_type) } {
-                        MsgType::GameOp => {
-                            let op = bincode::deserialize::<GameOperation> (&buf[AUTHORIZED_INFO_SIZE..]).unwrap();
-                            if self.check_user_op_valid(user_id, &op) {
-                                loop {
-                                    let mut found = false;
-                                    let mut target: usize = 0;
-                                    for (ix, op) in possible_ops.iter().enumerate() {
-                                        if op.player == pos {
-                                            target = ix;
-                                            found = true;
-                                            break;
-                                        }
-                                    }
-                                    if found {
-                                        possible_ops.remove(target);
-                                    } else {
-                                        break;
-                                    }
-                                }
-                                let op = MajiangOperation {
-                                    op: unsafe { mem::transmute(op.op_type) },
-                                    on_hand: op.provide_cards,
-                                    target: op.target,
-                                };
-                                possible_ops.push(TempOp {
-                                    player: pos,
-                                    op: op,
-                                });
-                                possible_ops.sort_by(|a, b| a.op.op.priority().cmp(&b.op.op.priority()));
-                                if possible_ops[0].player == pos {
-                                    println!("recv other choose");
+                    if self.check_user_op_valid(user_id, &op) {
+                        loop {
+                            let mut found = false;
+                            let mut target: usize = 0;
+                            for (ix, op) in possible_ops.iter().enumerate() {
+                                if op.player == pos {
+                                    target = ix;
+                                    found = true;
                                     break;
                                 }
                             }
-                        },
-                        MsgType::QueryGameState => {
-                            self.handle_query_state(user_id);
-                        },
-                        _ => {
+                            if found {
+                                possible_ops.remove(target);
+                            } else {
+                                break;
+                            }
+                        }
+                        possible_ops.push(TempOp {
+                            player: pos,
+                            op: MajiangOperation {
+                                op: unsafe { mem::transmute(op.op_type) },
+                                on_hand: op.provide_cards,
+                                target: op.target,
+                        }});
+                        possible_ops.sort_by(|a, b| a.op.op.priority().cmp(&b.op.op.priority()));
+                        if possible_ops[0].player == pos {
+                            println!("recv other choose");
+                            break;
                         }
                     }
-                    println!("{}", header.msg_type);
                 }
                 elapse += 20;
             }
-            return Some((possible_ops[0].player, MajiangOperation {
-                op: possible_ops[0].op.op,
-                target: possible_ops[0].op.target,
-                on_hand: possible_ops[0].op.on_hand.clone(),
-            }));
+            return Some((possible_ops[0].player, possible_ops[0].op.clone()));
         }
         return None;
     }
+    
+    async fn wait_for_cur_player_op(&mut self, timeout: u64) -> MajiangOperation {
+        let mut elapse = 0;
+        while elapse < timeout {
+            if let Some((user_id, op)) = self.read_game_operation_and_handle_query().await {
+                if self.check_user_op_valid(user_id, &op) {
+                    return MajiangOperation {
+                        op: unsafe { mem::transmute(op.op_type) },
+                        on_hand: op.provide_cards,
+                        target: op.target,
+                    };
+                }
+            }
+            elapse += 20;
+        }
+        return self.mock_recv_cur_player_op();
+    }
+
 }
 
 pub struct StartGame {
