@@ -12,7 +12,11 @@ pub enum MsgType {
      */
     GameOp = 0,
 
+    GameOpPack = 3,
+
     GameUpdate = 2,
+
+    GameRoundUpdate = 4,
 }
 
 #[repr(i8)]
@@ -23,6 +27,12 @@ pub enum OpType {
     ReadyRoom = 4,
     StartRoom = 5,
     CancelReady = 6,
+}
+
+#[repr(i8)]
+pub enum RoundInfoType {
+    RoundStart = 0,
+    RoundOver = 1,
 }
 
 #[repr(i32)]
@@ -55,7 +65,8 @@ pub struct Header {
 #[repr(packed)]
 pub struct GameBasicInfo {
     pub cur_game_step: i64,
-    pub player_id: u8,
+    pub cur_game_round: i32,
+    pub user_pos: u8,
     pub user_id: i64,
 }
 
@@ -65,7 +76,7 @@ pub struct GameBasicInfo {
  * POP, HU, PENG, CHI, GANG, ZIMO and so on.
  */
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[repr(packed)]
 pub struct GameOperation {
     pub header: Header,
@@ -73,6 +84,13 @@ pub struct GameOperation {
     pub op_type: i8,
     pub target: u8,
     pub provide_cards: Vec<u8>, // this is i64 + payload: [u8]
+}
+
+#[derive(Serialize, Deserialize)]
+#[repr(packed)]
+pub struct GameOperationPack {
+    pub header: Header,
+    pub operations: Vec<GameOperation>, // this is i64 + payload: [u8]
 }
 
 #[derive(Serialize, Deserialize)]
@@ -117,4 +135,16 @@ pub struct RoomUpdate {
     pub op_type: i8,
     pub user_id: i64,
     pub room_id: Vec<u8>, // 000000 for create
+}
+
+#[derive(Serialize, Deserialize)]
+#[repr(packed)]
+pub struct GameRoundUpdate {
+    pub header: Header,
+    pub round_info_type: i8,
+    pub cur_round: i32,
+    pub cur_banker_pos: u8,
+    pub cur_banker_user_id: i64,
+    pub user_cur_score: Vec<i32>,
+    pub user_score_change: Vec<i32>,
 }

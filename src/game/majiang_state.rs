@@ -109,7 +109,6 @@ impl StateType {
 }
 
 pub struct GameState {
-    pub num: usize,
     pub cur_step: i64,
     pub cur_state: StateType,
     pub cards: Vec<Majiang>,
@@ -125,13 +124,12 @@ pub struct GameState {
 impl GameState {
     pub fn new(num: usize) -> GameState {
         GameState {
-            num: num,
             cur_step: 0,
             cur_state: StateType::DealCard,
             cards: Vec::new(),
             player_state: Vec::new(),
             hide_card: Vec::new(),
-            win_player: 5,
+            win_player: num + 1,
             win_method: Action::Hu,
             cur_player: 0,
             cur_card_ix: 0,
@@ -275,7 +273,9 @@ impl GameState {
 
     pub fn execute_win_op(&mut self, player: usize, op: &MajiangOperation) {
         self.win_player = player;
+        self.cur_player = player;
         self.cur_state = StateType::WinOver;
+        self.cur_step += 1;
         self.win_method = op.op.clone();
     }
 

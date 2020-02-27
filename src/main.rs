@@ -46,7 +46,8 @@ async fn main() {
         rt.spawn(async move {
             const AUTHORIZED_INFO_SIZE: usize = 8;
             loop {
-                let buf: &[u8] = &rsp_rx.recv().await.unwrap();
+                let msg = rsp_rx.recv().await.unwrap();
+                let buf: &[u8] = &msg;
                 let mut authorized_buf = [0u8; AUTHORIZED_INFO_SIZE];
                 for i in 0..AUTHORIZED_INFO_SIZE {
                     authorized_buf[i] = buf[i];
