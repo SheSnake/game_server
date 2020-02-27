@@ -196,13 +196,13 @@ async fn main() {
                 },
                 MsgType::Authen => {
                     if let Some(room_id) = room_mng.get_user_room_id(authorized_user_id) {
-                        if let Some(sender) = room_mng.get_room_notifier(&room_id) {
+                        if let Some(mut sender) = room_mng.get_room_notifier(&room_id) {
                             let mut query = QueryGameSnapshot {
                                 header: Header::new(MsgType::QueryGameState),
                                 user_id: authorized_user_id,
                             };
                             let data: Vec<u8> = bincode::serialize::<QueryGameSnapshot>(&query).unwrap();
-                            send_data(&mut rsp_tx, &authorized_user_id, data).await;
+                            send_data(&mut sender, &authorized_user_id, data).await;
                         } else {
                             
                         }

@@ -126,11 +126,19 @@ pub async fn server_run(bind_addr: String, sender: Sender<Vec<u8>>, writefd_map:
             if !authorized {
                 msg.code = unsafe { mem::transmute(Code::AuthenWrong)};
                 let data = bincode::serialize::<AuthenResult> (&msg).unwrap();
-                writefd.write(&data);
+                match writefd.write(&data).await {
+                    Ok(_) => {},
+                    Err(_) => {}
+                }
                 return;
             }
             let data = bincode::serialize::<AuthenResult> (&msg).unwrap();
-            writefd.write(&data);
+            match writefd.write(&data).await {
+                Ok(_) => {},
+                Err(_) => {
+                    return;
+                }
+            }
 
             let mut session = ClientSession::new(readfd);
             {
