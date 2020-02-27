@@ -179,6 +179,13 @@ impl GameRoomMng {
         }
     }
 
+    pub fn get_user_room_id(&self, user_id: i64) -> Option<String> {
+        if let Some(room_id) = self.user_rooms.get(&user_id) {
+            return Some(room_id.clone());
+        }
+        return None;
+    }
+
     pub fn show_room_state(&self) {
         for (room_id, room) in self.act_rooms.iter() {
             println!("room:{} has user:{:?}, ready state:{:?}", room_id, room.players, room.readys);

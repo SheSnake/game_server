@@ -75,8 +75,7 @@ pub async fn server_run(bind_addr: String, sender: Sender<Vec<u8>>, writefd_map:
         let (socket, _) = listener.accept().await.unwrap();
         let mut sender = sender.clone();
         let writefd_map = writefd_map.clone();
-        let (mut readfd,  writefd) = tokio::io::split(socket);
-        //self.st.push(writefd);
+        let (mut readfd,  mut writefd) = tokio::io::split(socket);
         tokio::spawn(async move {
             let mut authorized = false;
             let mut user_id: i64 = -1;
@@ -116,10 +115,22 @@ pub async fn server_run(bind_addr: String, sender: Sender<Vec<u8>>, writefd_map:
                 }
             }
 
+            let mut msg = AuthenResult {
+                header: Header {
+                    msg_type: unsafe{ mem::transmute(MsgType::Authen) },
+                    len: 0,
+                },
+                code: unsafe { mem::transmute(Code::AuthenOk)},
+            };
+            msg.header.len = msg.size() as i32;
             if !authorized {
+                msg.code = unsafe { mem::transmute(Code::AuthenWrong)};
+                let data = bincode::serialize::<AuthenResult> (&msg).unwrap();
+                writefd.write(&data);
                 return;
             }
-
+            let data = bincode::serialize::<AuthenResult> (&msg).unwrap();
+            writefd.write(&data);
 
             let mut session = ClientSession::new(readfd);
             {
@@ -128,13 +139,22 @@ pub async fn server_run(bind_addr: String, sender: Sender<Vec<u8>>, writefd_map:
             }
 
             println!("user_id:{} authorized", user_id);
+            let authen_user_id = user_id;
             let user_id = user_id.to_le_bytes();
             let user_id: Vec<u8> = user_id.iter().cloned().collect();
+            let msg = [user_id.clone(), data.iter().cloned().collect()].concat();
+            match sender.send(msg).await {
+                Ok(()) => {},
+                Err(_) => {
+                    // TODO
+                }
+            };
+
             loop {
                 match session.fd.read(&mut session.buf[session.cur_tail..]).await {
                     Ok(n) if n == 0 => {
                         println!("session close");
-                        return;
+                        break;
                     }
                     Ok(n) => {
                         session.cur_tail += n as usize;
@@ -142,12 +162,17 @@ pub async fn server_run(bind_addr: String, sender: Sender<Vec<u8>>, writefd_map:
                         if session.reach_buf_end() {
                             session.rollbuf();
                         }
-                        let header_size = mem::size_of::<Header>();
-                        // for each read, handle all the finished recv meesage
-                        while session.cur_size >= header_size {
+                        while session.cur_size >= HEADER_SIZE {
                             unsafe {
-                                match bincode::deserialize::<Header> (&session.buf[session.cur_head..session.cur_head + header_size]) {
+                                match bincode::deserialize::<Header> (&session.buf[session.cur_head..session.cur_head + HEADER_SIZE]) {
                                     Ok(header) => {
+                                        if header.len > MAX_MSG_SIZE {
+                                            {
+                                                let mut map = writefd_map.lock().await;
+                                                map.remove(&authen_user_id);
+                                            }
+                                            break;
+                                        }
                                         println!("has read header, cur_head:{}, cur size:{}, need_len:{}", session.cur_head, session.cur_size, &header.len);
                                         if session.cur_size >= header.len as usize {
                                             let a: &[u8] = &session.buf[session.cur_head..session.cur_head + header.len as usize];

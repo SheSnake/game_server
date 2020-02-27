@@ -39,7 +39,6 @@ async fn main() {
     //round.init();
     //round.start();
     let t1 = thread::spawn(move || {
-        //let mut server = Arc::new(Mutex::new(server_net::MultiThreadServer::new("0.0.0.0:8890".to_string(), req_tx)));
         let writefd: Arc<Mutex<HashMap<i64, WriteHalf<TcpStream>>>> = Arc::new(Mutex::new(HashMap::new()));
         let writefd_copy = writefd.clone();
         let mut rt =  Runtime::new().unwrap();
@@ -110,17 +109,19 @@ async fn main() {
                         code: 0,
                         room_id: vec![0; 6],
                     };
+                    msg.header.len = msg.size() as i32;
                     let room_id: Vec<u8> = op.room_id.iter().cloned().collect();
                     let room_id = String::from_utf8(room_id).unwrap();
-                    let update = RoomUpdate {
+                    let mut update = RoomUpdate {
                         header: Header {
                             msg_type: 1,
-                            len: 5 + 1 + 8 + 14,
+                            len: 0,
                         },
                         op_type: op.op_type,
                         user_id: authorized_user_id.clone(),
                         room_id: room_id.clone().into_bytes(),
                     };
+                    update.header.len = update.size() as i32;
                     let mut need_broadcast = false;
                     match unsafe { mem::transmute(op.op_type) } {
                         OpType::CreateRoom => {
@@ -193,6 +194,20 @@ async fn main() {
                         }
                     }
                 },
+                MsgType::Authen => {
+                    if let Some(room_id) = room_mng.get_user_room_id(authorized_user_id) {
+                        if let Some(sender) = room_mng.get_room_notifier(&room_id) {
+                            let mut query = QueryGameSnapshot {
+                                header: Header::new(MsgType::QueryGameState),
+                                user_id: authorized_user_id,
+                            };
+                            let data: Vec<u8> = bincode::serialize::<QueryGameSnapshot>(&query).unwrap();
+                            send_data(&mut rsp_tx, &authorized_user_id, data).await;
+                        } else {
+                            
+                        }
+                    }
+                }
                 _ => {}
             }
         }

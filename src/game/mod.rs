@@ -117,13 +117,12 @@ impl Game {
 
     pub async fn start(&mut self) {
         // 0. notify new round card
-        let begin_size = (mem::size_of::<Header>() + mem::size_of::<GameBasicInfo>() + 1 + 1 + 8 + 13) as i32;
         for i in 0..4 {
             let user_id = self.players[i as usize].id;
-            let deal_begin_card = GameUpdate {
+            let mut deal_begin_card = GameUpdate {
                 header: Header {
                     msg_type: unsafe { mem::transmute(MsgType::GameUpdate) },
-                    len: begin_size,
+                    len: 0,
                 },
                 game_info: GameBasicInfo {
                     cur_game_step: self.state.cur_step,
@@ -136,6 +135,7 @@ impl Game {
                 target: 0,
                 provide_cards: self.state.player_state[i as usize].on_hand_card_id(),
             };
+            deal_begin_card.header.len = deal_begin_card.size() as i32;
             let data: Vec<u8> = bincode::serialize::<GameUpdate>(&deal_begin_card).unwrap();
             self.send_data(&user_id, data).await;
         }
@@ -146,11 +146,10 @@ impl Game {
             let next_card = self.state.deal_next_card();
             let cur_user_id = self.players[self.state.cur_player()].id;
             self.state.print_state();
-            let data_len = (mem::size_of::<Header>() + mem::size_of::<GameBasicInfo>() + 1 + 1 + 8 + on_hand_cards.len()) as i32;
             let mut next_card_msg = GameUpdate {
                 header: Header {
                     msg_type: unsafe { mem::transmute(MsgType::GameUpdate) },
-                    len: data_len,
+                    len: 0,
                 },
                 game_info: GameBasicInfo {
                     cur_game_step: self.state.cur_step,
@@ -163,6 +162,7 @@ impl Game {
                 target: next_card,
                 provide_cards: on_hand_cards,
             };
+            next_card_msg.header.len = next_card_msg.size() as i32;
             let data: Vec<u8> = bincode::serialize::<GameUpdate>(&next_card_msg).unwrap();
             self.send_data(&cur_user_id, data).await;
 
@@ -253,15 +253,12 @@ impl Game {
 
     async fn notify_operation(&mut self, player: usize, ops: &Vec<MajiangOperation>) {
         let mut operations = Vec::new();
-        let mut data_len = mem::size_of::<Header>() + 8;
         let user_id = self.players[player].id;
         for op in ops.iter() {
-            let op_len = mem::size_of::<Header>() +  mem::size_of::<GameBasicInfo>() + 1 + 1 + 8 + op.on_hand.len();
-            data_len += op_len;
-            let op_data = GameOperation {
+            let mut op_data = GameOperation {
                 header: Header {
                     msg_type: unsafe { mem::transmute(MsgType::GameOp) }, 
-                    len: op_len as i32,
+                    len: 0,
                 },
                 game_info: GameBasicInfo {
                     cur_game_step: self.state.cur_step,
@@ -274,15 +271,17 @@ impl Game {
                 target: op.target,
                 provide_cards: op.on_hand.clone(),
             };
+            op_data.header.len = op_data.size() as i32;
             operations.push(op_data);
         }
-        let op_list = GameOperationPack {
+        let mut op_list = GameOperationPack {
             header: Header {
                 msg_type: unsafe { mem::transmute(MsgType::GameOpPack) }, 
-                len: data_len as i32,
+                len: 0,
             },
             operations: operations,
         };
+        op_list.header.len = op_list.size() as i32;
         let data: Vec<u8> = bincode::serialize::<GameOperationPack>(&op_list).unwrap();
         self.send_data(&user_id, data).await;
     }
@@ -300,14 +299,12 @@ impl Game {
     }
 
     async fn notify_game_update(&mut self, player: usize, op: &MajiangOperation) {
-        let data_len = mem::size_of::<Header>() +  mem::size_of::<GameBasicInfo>() + 1 + 1 + 8 + op.on_hand.len();
         let action_user_id = self.players[self.state.cur_player].id;
         let recv_user_id = self.players[player].id;
-        let buff = [0u8; 6];
-        let update = GameUpdate {
+        let mut update = GameUpdate {
             header: Header {
                 msg_type: unsafe { mem::transmute(MsgType::GameUpdate) }, 
-                len: data_len as i32,
+                len: 0,
             },
             game_info: GameBasicInfo {
                 cur_game_step: self.state.cur_step,
@@ -320,6 +317,7 @@ impl Game {
             target: op.target,
             provide_cards: op.on_hand.clone(),
         };
+        update.header.len = update.size() as i32;
         let data: Vec<u8> = bincode::serialize::<GameUpdate>(&update).unwrap();
         self.send_data(&recv_user_id, data).await;
     }
@@ -342,18 +340,6 @@ impl Game {
         }
         else {
             None
-        }
-    }
-
-    fn mock_recv_other_player_op(&mut self) {
-        for i in 0..4 {
-            if let Some(op) = &self.other_ops[i] {
-               self.recv_other_ops[i] = Some(MajiangOperation {
-                   op: op[0].op,
-                   on_hand: op[0].on_hand.clone(),
-                   target: op[0].target,
-               });
-            }
         }
     }
 
@@ -605,13 +591,12 @@ impl StartGame {
     pub async fn start(&mut self) {
         let mut round = Game::new(self.players.clone(), self.game_notifier.clone(), self.game_receiver.clone(), self.max_wait_second, self.room_id.clone());
         let mut next_banker = false;
-        let round_update_len =  (mem::size_of::<Header>() + 1 + 4 + 1 + 8 + 8 + 4 * 4 + 8 + 4 * 4) as i32;
         while !self.over() {
             round.init();
-            let msg = GameRoundUpdate {
+            let mut msg = GameRoundUpdate {
                 header: Header {
                     msg_type: unsafe { mem::transmute(MsgType::GameRoundUpdate) } ,
-                    len: round_update_len,
+                    len: 0,
                 },
                 round_info_type: unsafe{ mem::transmute(RoundInfoType::RoundStart) },
                 cur_round: self.cur_round,
@@ -620,6 +605,7 @@ impl StartGame {
                 user_cur_score: self.get_player_score(),
                 user_score_change: vec![0, 0, 0, 0],
             };
+            msg.header.len = msg.size() as i32;
             let data: Vec<u8> = bincode::serialize::<GameRoundUpdate>(&msg).unwrap();
             self.broadcast_msg(data).await;
             round.start().await;
@@ -634,10 +620,10 @@ impl StartGame {
                 score_change.push(score);
                 println!("player: {} score:{}", player.id, player.score);
             }
-            let msg = GameRoundUpdate {
+            let mut msg = GameRoundUpdate {
                 header: Header {
                     msg_type: unsafe { mem::transmute(MsgType::GameRoundUpdate) },
-                    len: round_update_len,
+                    len: 0,
                 },
                 round_info_type: unsafe{ mem::transmute(RoundInfoType::RoundOver) },
                 cur_round: self.cur_round,
@@ -646,6 +632,7 @@ impl StartGame {
                 user_cur_score: self.get_player_score(),
                 user_score_change: score_change,
             };
+            msg.header.len = msg.size() as i32;
             let data: Vec<u8> = bincode::serialize::<GameRoundUpdate>(&msg).unwrap();
             self.broadcast_msg(data).await;
             round.reset(next_banker, self.players.clone(), self.cur_round);
