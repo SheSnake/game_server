@@ -201,10 +201,13 @@ async fn main() {
                                 header: Header::new(MsgType::QueryGameState),
                                 user_id: authorized_user_id,
                             };
+                            query.header.len = query.size() as i32;
                             let data: Vec<u8> = bincode::serialize::<QueryGameSnapshot>(&query).unwrap();
                             send_data(&mut sender, &authorized_user_id, data).await;
                         } else {
-                            
+                            let snapshot = room_mng.get_room_snapshot(&room_id).unwrap();
+                            let data: Vec<u8> = bincode::serialize::<RoomSnapshot>(&snapshot).unwrap();
+                            send_data(&mut rsp_tx, &authorized_user_id, data).await;
                         }
                     }
                 }

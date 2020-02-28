@@ -35,6 +35,7 @@ pub enum OpType {
     ReadyRoom = 4,
     StartRoom = 5,
     CancelReady = 6,
+    RoomSnapshot = 7,
 }
 
 #[repr(i8)]
@@ -210,6 +211,22 @@ pub struct RoomUpdate {
 impl RoomUpdate {
     pub fn size(&self) -> usize {
         return HEADER_SIZE + 1 + 8 + 8 + self.room_id.len();
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[repr(packed)]
+pub struct RoomSnapshot {
+    pub header: Header,
+    pub op_type: i8,
+    pub user_pos: Vec<i64>,
+    pub user_ready_status: Vec<u8>,
+    pub room_id: Vec<u8>, // 000000 for create
+}
+
+impl RoomSnapshot {
+    pub fn size(&self) -> usize {
+        return HEADER_SIZE + 1 + 8 + 8 * 4 + 8 + 1 * 4 + 8 + 1 * 4;
     }
 }
 

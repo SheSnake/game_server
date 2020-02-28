@@ -3,7 +3,8 @@ extern crate tokio;
 use rand::{ thread_rng };
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
-use super::super::server_net::message::Code;
+use super::super::server_net::message::*;
+use std::mem;
 use tokio::sync::mpsc::{ Sender };
 
 pub enum RoomType {
@@ -67,7 +68,7 @@ impl GameRoomMng {
             room_type: 1,
             room_state: 0,
             max_player: 4,
-            players: vec![user_id],
+            players: vec![user_id, -1, -1, -1],
             readys: HashMap::new(),
         };
         self.act_rooms.insert(room_id.clone(), room);
@@ -81,10 +82,17 @@ impl GameRoomMng {
             return (err, Code::AlreadyInRoom);
         }
         if let Some(room) = self.act_rooms.get_mut(room_id) {
-            if room.players.len() > room.max_player {
+            let mut pos = 999;
+            for (ix, &user_id) in room.players.iter().enumerate() {
+                if user_id == -1 {
+                    pos = ix;
+                    break;
+                }
+            }
+            if pos == 999 {
                 return (err, Code::RoomFull);
             }
-            room.players.push(user_id);
+            room.players[pos] = user_id;
             self.user_rooms.insert(user_id, room_id.clone());
             return (room_id.clone(), Code::JoinOk);
         }
@@ -140,7 +148,7 @@ impl GameRoomMng {
                 room.readys.remove(&user_id);
                 for i in 0..room.players.len() {
                     if room.players[i] == user_id {
-                        room.players.remove(i);
+                        room.players[i] = -1;
                         break;
                     }
                 }
@@ -182,6 +190,30 @@ impl GameRoomMng {
     pub fn get_user_room_id(&self, user_id: i64) -> Option<String> {
         if let Some(room_id) = self.user_rooms.get(&user_id) {
             return Some(room_id.clone());
+        }
+        return None;
+    }
+
+    pub fn get_room_snapshot(&self, room_id: &String) -> Option<RoomSnapshot> {
+        if let Some(room) = self.act_rooms.get(room_id) {
+            let mut readys = vec![0, 0, 0, 0];
+            for (ix, user_id) in room.players.iter().enumerate() {
+                if *user_id == -1 {
+                    continue;
+                }
+                if room.readys.contains_key(user_id) {
+                    readys[ix] = 1;
+                }
+            }
+            let mut msg = RoomSnapshot {
+                header: Header::new(MsgType::RoomOp),
+                op_type: unsafe { mem::transmute(OpType::RoomSnapshot) },
+                user_pos: room.players.clone(),
+                user_ready_status: readys,
+                room_id: room_id.clone().into_bytes(),
+            };
+            msg.header.len = msg.size() as i32;
+            return Some(msg);
         }
         return None;
     }
