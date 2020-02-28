@@ -8,22 +8,23 @@ pub enum MsgType {
     /*
      * room manage
      * */
-    RoomOp = 1,
+    RoomOp = 10,
+    RoomManageResult = 11,
+    RoomSnapshot = 12,
+    RoomUpdate = 13,
 
     /*
      * game op
      */
-    GameOp = 0,
-
-    GameOpPack = 3,
-
-    GameUpdate = 2,
-
-    GameRoundUpdate = 4,
-
-    QueryGameState = 5,
+    GameOp = 20,
+    GameOpPack = 21,
+    GameUpdate = 22,
+    GameRoundUpdate = 23,
+    QueryGameState = 24,
+    GameSnapshot = 25,
 
     Authen = 6,
+
 }
 
 
@@ -35,7 +36,6 @@ pub enum OpType {
     ReadyRoom = 4,
     StartRoom = 5,
     CancelReady = 6,
-    RoomSnapshot = 7,
 }
 
 #[repr(i8)]
@@ -107,6 +107,18 @@ pub struct GameBasicInfo {
     pub room_id: [u8; 6],
 }
 const GAME_INFO_SIZE: usize = mem::size_of::<GameBasicInfo>();
+
+impl GameBasicInfo {
+    pub fn new(round: i32, step: i64, user_pos: u8, user_id: i64, room_id: [u8; 6]) -> GameBasicInfo {
+        return GameBasicInfo {
+            cur_game_step: step,
+            cur_game_round: round,
+            user_pos: user_pos,
+            user_id: user_id,
+            room_id: room_id,
+        }
+    }
+}
 
 
 /*
@@ -218,7 +230,6 @@ impl RoomUpdate {
 #[repr(packed)]
 pub struct RoomSnapshot {
     pub header: Header,
-    pub op_type: i8,
     pub user_pos: Vec<i64>,
     pub user_ready_status: Vec<u8>,
     pub room_id: Vec<u8>, // 000000 for create
@@ -226,7 +237,7 @@ pub struct RoomSnapshot {
 
 impl RoomSnapshot {
     pub fn size(&self) -> usize {
-        return HEADER_SIZE + 1 + 8 + 8 * 4 + 8 + 1 * 4 + 8 + 1 * 4;
+        return HEADER_SIZE + 8 + 8 * self.user_pos.len() + 8 + 1 * self.user_ready_status.len() + 8 + 1 * self.room_id.len();
     }
 }
 
@@ -266,17 +277,18 @@ impl QueryGameSnapshot {
 pub struct GameSnapshot {
     pub header: Header,
     pub game_info: GameBasicInfo,
-    pub user_on_hand: Vec<u8>,
-    pub on_game_user_id: Vec<i32>, // user_id of 4 pos,
-    pub on_game_group_cards: Vec<Vec<Vec<u8>>>,
     pub user_id: i64,
+    pub user_on_hand: Vec<u8>,
+    pub on_game_user_id: Vec<i64>, // user_id of 4 pos,
+    pub on_game_group_cards: Vec<Vec<Vec<u8>>>,
 }
 
 impl GameSnapshot {
     pub fn size(&self) -> usize {
         let mut len = HEADER_SIZE + GAME_INFO_SIZE;
-        len += 8 + self.user_on_hand.len();
-        len += 8 + self.on_game_user_id.len() * 4;
+        len += 8;
+        len += 8 + self.user_on_hand.len() * 1;
+        len += 8 + self.on_game_user_id.len() * 8;
         len += 8;
         for user_group in self.on_game_group_cards.iter() {
             len += 8;

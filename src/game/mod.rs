@@ -11,6 +11,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 use std::sync::Arc;
 use std::mem;
+use std::collections::HashMap;
 use super::server_net::message::*;
 
 use player::Player;
@@ -29,15 +30,14 @@ pub struct Game {
     state: GameState,
     cur_player_ops: Option<Vec<MajiangOperation>>,
     other_ops: Vec<Option<Vec<MajiangOperation>>>,
-    recv_other_ops: Vec<Option<MajiangOperation>>,
     game_notifier: Sender<Vec<u8>>,
+    user_pos: HashMap<i64, usize>,
     game_receiver: Arc<Mutex<Receiver<Vec<u8>>>>,
     default_base_score: i32,
     base_score: i32,
     cur_banker: usize,
     cur_round: i32,
     max_wait_second: u64,
-    room_id: String,
     room_id_buf: [u8; 6],
 }
 
@@ -48,11 +48,14 @@ impl Game {
         for (ix, &c) in room_id.clone().into_bytes().iter().enumerate() {
             buf[ix] = c;
         }
+        let mut user_pos = HashMap::new();
+        for (ix, player) in players.iter().enumerate() {
+            user_pos.insert(player.id, ix);
+        }
         return Game {
             players: players,
             state: GameState::new(num),
             other_ops: Vec::new(),
-            recv_other_ops: Vec::new(),
             cur_player_ops: None,
             game_notifier: notifier,
             game_receiver: receiver,
@@ -61,8 +64,8 @@ impl Game {
             base_score: 5,
             cur_banker: 0,
             cur_round: 1,
-            room_id: room_id,
             room_id_buf: buf,
+            user_pos: user_pos,
         };
     }
 
@@ -377,8 +380,40 @@ impl Game {
         return authorized_user_id;
     }
 
-    async fn handle_query_state(&mut self, user_id: i64) {
+    fn get_cur_game_info(&self) -> GameBasicInfo {
+        let cur_player_pos = self.state.cur_player;
+        return GameBasicInfo::new(
+            self.cur_round, self.state.cur_step,
+            self.state.cur_player as u8,
+            self.players[cur_player_pos].id,
+            self.room_id_buf.clone(),
+        )
+    }
 
+    async fn handle_query_state(&mut self, user_id: i64) {
+        let mut on_game_user_id = Vec::new();
+        let mut on_game_group_cards = Vec::new();
+        for player in self.players.iter() {
+            on_game_user_id.push(player.id);
+            let pos = self.user_pos[&player.id];
+            if let Some(group) = self.state.player_state[pos].group_cards() {
+                on_game_group_cards.push(group);
+            } else {
+                on_game_group_cards.push(Vec::new());
+            }
+        }
+
+        let mut snapshot = GameSnapshot {
+            header: Header::new(MsgType::GameSnapshot),
+            game_info: self.get_cur_game_info(),
+            user_on_hand: self.state.player_state[self.user_pos[&user_id]].on_hand_card_id(),
+            user_id: user_id,
+            on_game_user_id: on_game_user_id,
+            on_game_group_cards: on_game_group_cards,
+        };
+        snapshot.header.len = snapshot.size() as i32;
+        let data: Vec<u8> = bincode::serialize::<GameSnapshot>(&snapshot).unwrap();
+        self.send_data(&user_id, data).await;
     }
 
     fn get_user_pos(&self, user_id: i64) -> usize {
@@ -428,7 +463,7 @@ impl Game {
                     return Some((user_id, op));
                 },
                 MsgType::QueryGameState => {
-                    self.handle_query_state(user_id);
+                    self.handle_query_state(user_id).await;
                 },
                 _ => {
                 }

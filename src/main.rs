@@ -35,9 +35,6 @@ async fn main() {
     let (req_tx, mut req_rx)= channel::<Vec<u8>>(4096);
     let (mut rsp_tx, mut rsp_rx)= channel::<Vec<u8>>(4096);
     let mut room_mng = GameRoomMng::new(3);
-    //let mut _round = game::Game::new(vec![p1, p2, p3, p4]);
-    //round.init();
-    //round.start();
     let t1 = thread::spawn(move || {
         let writefd: Arc<Mutex<HashMap<i64, WriteHalf<TcpStream>>>> = Arc::new(Mutex::new(HashMap::new()));
         let writefd_copy = writefd.clone();
@@ -78,7 +75,7 @@ async fn main() {
             }
             let authorized_user_id : i64 = i64::from_le_bytes(authorized_buf);
             let header = bincode::deserialize::<Header> (&buf[AUTHORIZED_INFO_SIZE..AUTHORIZED_INFO_SIZE + header_size]).unwrap();
-            println!("recv msg from user {}", authorized_user_id);
+            println!("recv msg from user {} {}", authorized_user_id, header.msg_type);
             match unsafe { mem::transmute(header.msg_type) } {
                 MsgType::GameOp => {
                     match bincode::deserialize::<GameOperation> (&buf[AUTHORIZED_INFO_SIZE..]) {
@@ -100,92 +97,68 @@ async fn main() {
                 MsgType::RoomOp => {
                     let op = bincode::deserialize::<RoomManage> (&buf[AUTHORIZED_INFO_SIZE..]).unwrap();
                     let mut msg = RoomManageResult {
-                        header: Header {
-                            msg_type: 1,
-                            len: 5 + 1 + 8 + 4 + 14,
-                        },
+                        header: Header::new(MsgType::RoomManageResult),
                         op_type: op.op_type,
                         user_id: op.user_id,
                         code: 0,
                         room_id: vec![0; 6],
                     };
-                    msg.header.len = msg.size() as i32;
                     let room_id: Vec<u8> = op.room_id.iter().cloned().collect();
-                    let room_id = String::from_utf8(room_id).unwrap();
-                    let mut update = RoomUpdate {
-                        header: Header {
-                            msg_type: 1,
-                            len: 0,
-                        },
-                        op_type: op.op_type,
-                        user_id: authorized_user_id.clone(),
-                        room_id: room_id.clone().into_bytes(),
-                    };
-                    update.header.len = update.size() as i32;
-                    let mut need_broadcast = false;
+                    let mut room_id = String::from_utf8(room_id).unwrap();
                     match unsafe { mem::transmute(op.op_type) } {
                         OpType::CreateRoom => {
-                            let (room_id, code) = room_mng.create_room(op.user_id);
-                            msg.room_id = room_id.clone().into_bytes();
+                            let (created_room_id, code) = room_mng.create_room(op.user_id);
+                            msg.room_id = created_room_id.clone().into_bytes();
                             msg.code = unsafe { mem::transmute(code) };
+                            room_id = created_room_id;
                             unsafe { println!("user:{} create room:{}", op.user_id.clone(), room_id) };
                         },
                         OpType::JoinRoom => {
                             let (err, code) = room_mng.join_room(op.user_id, &room_id);
                             msg.room_id = err.into_bytes();
                             msg.code = unsafe { mem::transmute(code) };
-                            need_broadcast = true;
                         },
                         OpType::LeaveRoom => {
                             let (err, code) = room_mng.leave_room(op.user_id, &room_id);
                             msg.room_id = err.into_bytes();
                             msg.code = unsafe { mem::transmute(code) };
-                            need_broadcast = true;
                         },
                         OpType::ReadyRoom => {
                             let (err, code) = room_mng.ready_room(op.user_id, &room_id);
                             msg.room_id = err.into_bytes();
                             msg.code = unsafe { mem::transmute(code) };
-                            need_broadcast = true;
                         },
                         OpType::CancelReady => {
                             let (err, code) = room_mng.cancel_ready(op.user_id, &room_id);
                             msg.room_id = err.into_bytes();
                             msg.code = unsafe { mem::transmute(code) };
-                            need_broadcast = true;
                         },
                         _ => {}
                     }
+                    msg.header.len = msg.size() as i32;
                     let data: Vec<u8> = bincode::serialize::<RoomManageResult>(&msg).unwrap();
                     println!("data len:{}", data.len());
                     send_data(&mut rsp_tx, &authorized_user_id, data).await;
                     room_mng.show_room_state();
 
-                    if !need_broadcast {
-                        continue;
-                    }
                     if let Some(room_users) = room_mng.get_room_user_id(&room_id) {
+                        let snapshot = room_mng.get_room_snapshot(&room_id).unwrap();
+                        let data: Vec<u8> = bincode::serialize::<RoomSnapshot>(&snapshot).unwrap();
                         for user_id in room_users.iter() {
-                            if *user_id == authorized_user_id {
-                                continue;
-                            }
-                            let data: Vec<u8> = bincode::serialize::<RoomUpdate>(&update).unwrap();
-                            send_data(&mut rsp_tx, user_id, data).await;
+                            send_data(&mut rsp_tx, &user_id, data.clone()).await;
                         }
                         if let Some(all_ready) = room_mng.all_ready(&room_id) {
-                            if all_ready {
-                                let update = RoomUpdate {
-                                    header: Header {
-                                        msg_type: 1,
-                                        len: 5 + 1 + 8 + 14,
-                                    },
+                            if all_ready  && !room_mng.room_has_start(&room_id) {
+                                let mut update = RoomUpdate {
+                                    header: Header::new(MsgType::RoomUpdate),
                                     op_type: unsafe { mem::transmute(OpType::StartRoom) },
                                     user_id: 0,
                                     room_id: room_id.clone().into_bytes(),
                                 };
+                                update.header.len = update.size() as i32;
+                                let data: Vec<u8> = bincode::serialize::<RoomUpdate>(&update).unwrap();
                                 for user_id in room_users.iter() {
-                                    let data: Vec<u8> = bincode::serialize::<RoomUpdate>(&update).unwrap();
-                                    send_data(&mut rsp_tx, user_id, data).await;
+                                    send_data(&mut rsp_tx, user_id, data.clone()).await;
                                 }
                                 let (game_msg_tx, game_msg_rx) = channel::<Vec<u8>>(4096);
                                 room_mng.set_room_notifier(&room_id, game_msg_tx);

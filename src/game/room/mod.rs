@@ -206,8 +206,7 @@ impl GameRoomMng {
                 }
             }
             let mut msg = RoomSnapshot {
-                header: Header::new(MsgType::RoomOp),
-                op_type: unsafe { mem::transmute(OpType::RoomSnapshot) },
+                header: Header::new(MsgType::RoomSnapshot),
                 user_pos: room.players.clone(),
                 user_ready_status: readys,
                 room_id: room_id.clone().into_bytes(),
@@ -216,6 +215,10 @@ impl GameRoomMng {
             return Some(msg);
         }
         return None;
+    }
+
+    pub fn room_has_start(&self, room_id: &String) -> bool {
+        return self.start_game.contains_key(room_id);
     }
 
     pub fn show_room_state(&self) {

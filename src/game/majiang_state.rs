@@ -12,6 +12,10 @@ pub struct MajiangPlayerState {
 }
 
 impl MajiangPlayerState {
+    pub fn group_cards(&self) -> Option<Vec<Vec<u8>>> {
+        return self.group_cards.clone();
+    }
+
     pub fn add_card(&mut self, cards: &[u8]) {
         for (_, &card) in cards.iter().enumerate() {
             self.on_hand.insert(card, 1);
