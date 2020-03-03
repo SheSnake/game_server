@@ -172,6 +172,13 @@ impl GameRoomMng {
         }
     }
 
+    pub fn room_game_over(&mut self, room_id: &String) {
+        if let Some(room) = self.act_rooms.get_mut(room_id) {
+            room.readys.clear();
+            self.start_game.remove(room_id);
+        }
+    }
+
     pub fn get_room_notifier(&mut self, room_id: &String) -> Option<Sender<Vec<u8>>> {
         if let Some(sender) = self.start_game.get(room_id) {
             return Some(sender.clone());

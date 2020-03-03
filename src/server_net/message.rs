@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::mem;
 
 pub const MAX_MSG_SIZE: i32 = 1024;
+pub const AUTHORIZED_INFO_SIZE: usize = 8;
 
 #[repr(i8)]
 pub enum MsgType {
@@ -22,6 +23,7 @@ pub enum MsgType {
     GameRoundUpdate = 23,
     QueryGameState = 24,
     GameSnapshot = 25,
+    GameOver = 26,
 
     Authen = 6,
 
@@ -300,3 +302,17 @@ impl GameSnapshot {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+#[repr(packed)]
+pub struct GameOver {
+    pub header: Header,
+    pub room_id: Vec<u8>,
+    pub cur_round: i32,
+    pub user_cur_score: Vec<i32>,
+}
+
+impl GameOver {
+    pub fn size(&self) -> usize {
+        return HEADER_SIZE + 8 + 1 * self.room_id.len() + 4 + 8 + 4 * self.user_cur_score.len();
+    }
+}

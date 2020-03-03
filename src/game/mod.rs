@@ -556,6 +556,7 @@ pub struct StartGame {
     players: Vec<Player>,
     end_score: i32,
     cur_round: i32,
+    main_sender: Sender<Vec<u8>>,
     game_notifier: Sender<Vec<u8>>,
     game_receiver: Arc<Mutex<Receiver<Vec<u8>>>>,
     max_wait_second: u64,
@@ -563,9 +564,9 @@ pub struct StartGame {
 }
 
 impl StartGame {
-    pub fn new(room_id: String, players: Vec<i64>, notifier: Sender<Vec<u8>>, receiver: Receiver<Vec<u8>>) -> StartGame {
+    pub fn new(room_id: String, players: Vec<i64>, notifier: Sender<Vec<u8>>, receiver: Receiver<Vec<u8>>, main_sender: Sender<Vec<u8>>) -> StartGame {
         let mut player_state = Vec::new();
-        let start_score = 100;
+        let start_score = 10;
         for (ix, &user_id) in players.iter().enumerate() {
             player_state.push({ Player {
                 id: user_id,
@@ -577,6 +578,7 @@ impl StartGame {
             players: player_state,
             end_score: 0,
             cur_round: 1,
+            main_sender: main_sender,
             game_notifier: notifier,
             game_receiver: Arc::new(Mutex::new(receiver)),
             max_wait_second: 1,
@@ -671,13 +673,31 @@ impl StartGame {
             let data: Vec<u8> = bincode::serialize::<GameRoundUpdate>(&msg).unwrap();
             self.broadcast_msg(data).await;
             round.reset(next_banker, self.players.clone(), self.cur_round);
+            if self.over() {
+                let mut over = GameOver {
+                    header: Header::new(MsgType::GameOver),
+                    room_id: self.room_id.clone().into_bytes(),
+                    cur_round: self.cur_round,
+                    user_cur_score: msg.user_cur_score.clone(),
+                };
+                over.header.len = over.size() as i32;
+                let data: Vec<u8> = bincode::serialize::<GameOver>(&over).unwrap();
+                self.broadcast_msg(data.clone()).await;
+                let data = [vec![0u8; AUTHORIZED_INFO_SIZE], data].concat();
+                match self.main_sender.send(data).await {
+                    Ok(()) => {},
+                    Err(_) => {
+                        // TODO
+                    }
+                }
+            }
             self.cur_round += 1;
         }
     }
 }
 
-pub async fn start_game(room_id: String, players: Vec<i64>, notifier: Sender<Vec<u8>>, receiver: Receiver<Vec<u8>>) {
-    let mut game = StartGame::new(room_id, players, notifier, receiver);
+pub async fn start_game(room_id: String, players: Vec<i64>, notifier: Sender<Vec<u8>>, receiver: Receiver<Vec<u8>>, main_sender: Sender<Vec<u8>>) {
+    let mut game = StartGame::new(room_id, players, notifier, receiver, main_sender);
     game.start().await;
 
 }

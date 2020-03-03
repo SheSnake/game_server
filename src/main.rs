@@ -34,6 +34,7 @@ async fn send_data(sender: &mut Sender<Vec<u8>>, user_id: &i64, data: Vec<u8>) {
 async fn main() {
     let (req_tx, mut req_rx)= channel::<Vec<u8>>(4096);
     let (mut rsp_tx, mut rsp_rx)= channel::<Vec<u8>>(4096);
+    let req_tx_copy = req_tx.clone();
     let mut room_mng = GameRoomMng::new(3);
     let t1 = thread::spawn(move || {
         let writefd: Arc<Mutex<HashMap<i64, WriteHalf<TcpStream>>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -65,7 +66,6 @@ async fn main() {
     
     tokio::spawn(async move {
         let header_size = mem::size_of::<Header>();
-        const AUTHORIZED_INFO_SIZE: usize = 8;
         loop {
             let msg = req_rx.recv().await.unwrap();
             let buf: &[u8] = &msg;
@@ -75,7 +75,7 @@ async fn main() {
             }
             let authorized_user_id : i64 = i64::from_le_bytes(authorized_buf);
             let header = bincode::deserialize::<Header> (&buf[AUTHORIZED_INFO_SIZE..AUTHORIZED_INFO_SIZE + header_size]).unwrap();
-            println!("recv msg from user {} {}", authorized_user_id, header.msg_type);
+            println!("recv msg_type:{} from user:{}", header.msg_type, authorized_user_id);
             match unsafe { mem::transmute(header.msg_type) } {
                 MsgType::GameOp => {
                     match bincode::deserialize::<GameOperation> (&buf[AUTHORIZED_INFO_SIZE..]) {
@@ -162,8 +162,21 @@ async fn main() {
                                 }
                                 let (game_msg_tx, game_msg_rx) = channel::<Vec<u8>>(4096);
                                 room_mng.set_room_notifier(&room_id, game_msg_tx);
-                                tokio::spawn(start_game(room_id.clone(), room_users.clone(), rsp_tx.clone(), game_msg_rx));
+                                tokio::spawn(start_game(room_id.clone(), room_users.clone(), rsp_tx.clone(), game_msg_rx, req_tx_copy.clone()));
                             }
+                        }
+                    }
+                },
+                MsgType::GameOver => {
+                    let over = bincode::deserialize::<GameOver> (&buf[AUTHORIZED_INFO_SIZE..]).unwrap();
+                    let mut room_id = String::from_utf8(over.room_id.clone()).unwrap();
+                    room_mng.room_game_over(&room_id);
+                    if let Some(room_users) = room_mng.get_room_user_id(&room_id) {
+                        let snapshot = room_mng.get_room_snapshot(&room_id).unwrap();
+                        let data: Vec<u8> = bincode::serialize::<RoomSnapshot>(&snapshot).unwrap();
+                        println!("room:{} over", room_id);
+                        for user_id in room_users.iter() {
+                            send_data(&mut rsp_tx, &user_id, data.clone()).await;
                         }
                     }
                 },
