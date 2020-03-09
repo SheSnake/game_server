@@ -337,7 +337,8 @@ impl MajiangOperation {
 
     pub fn equal(&self, rhs: &MajiangOperation) -> bool {
         let op_type: u8 = unsafe{ mem::transmute(self.op) };
-        if op_type != unsafe{ mem::transmute(rhs.op) } {
+        let rhs_op: u8 = unsafe{ mem::transmute(rhs.op) };
+        if op_type !=  rhs_op {
             return false;
         }
         if self.target != rhs.target {
