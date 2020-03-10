@@ -16,6 +16,11 @@ use tokio::prelude::*;
 use tokio::time::timeout;
 use std::collections::HashMap;
 use redis::AsyncCommands;
+use rdkafka::config::ClientConfig;
+use rdkafka::message::OwnedHeaders;
+use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::util::get_rdkafka_version;
+use futures::*;
 
 pub mod message;
 use message::*;
@@ -60,7 +65,6 @@ impl ClientSession {
 }
 
 pub async fn get_userinfo_by_session_id(redis_uri: &String, session_id: String) -> Option<i64> {
-    let mut sessions: HashMap<String, i64> = HashMap::new();
     let client = redis::Client::open(redis_uri.clone()).unwrap();
     let mut conn = client.get_async_connection().await.unwrap();
     match conn.get(session_id).await {
@@ -72,6 +76,42 @@ pub async fn get_userinfo_by_session_id(redis_uri: &String, session_id: String) 
             println!("redis get err: {}", err);
             return None;
         }
+    }
+}
+
+async fn produce(brokers: &str, topic_name: &str) {
+    let producer: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", brokers)
+        .set("message.timeout.ms", "5000")
+        .create()
+        .expect("Producer creation error");
+
+    // This loop is non blocking: all messages will be sent one after the other, without waiting
+    // for the results.
+    let futures = (0..5)
+        .map(|i| {
+            // The send operation on the topic returns a future, that will be completed once the
+            // result or failure from Kafka will be received.
+            let data: Vec<u8> = vec![1, 2, 3, i];
+            producer
+                .send(
+                    FutureRecord::to(topic_name)
+                        .payload(&data)
+                        .key(&format!("Key {}", 1))
+                        .headers(OwnedHeaders::new().add("header_key", "header_value")),
+                    0,
+                )
+                .map(move |delivery_status| {
+                    // This will be executed onw the result is received
+                    println!("Delivery status for message {} received", i);
+                    delivery_status
+                })
+        })
+        .collect::<Vec<_>>();
+
+    // This loop will wait until all delivery statuses have been received received.
+    for future in futures {
+        println!("Future completed. Result: {:?}", future.await);
     }
 }
 
@@ -89,6 +129,9 @@ pub async fn server_run(bind_addr: String, redis_addr: String, sender: Sender<Ve
             const AUTHORIZED_SIZE: usize = 128;
             let mut buf = [0u8; AUTHORIZED_SIZE];
             let mut read_len = 0;
+            let brokers = "127.0.0.1:9092";
+            let topic_names = "test";
+            produce(&brokers, &topic_names).await;
             while read_len < AUTHORIZED_SIZE {
                 let process = readfd.read(&mut buf[read_len..AUTHORIZED_SIZE]);
                 match timeout(Duration::from_millis(5000), process).await {

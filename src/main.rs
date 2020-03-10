@@ -16,6 +16,79 @@ use std::sync::Arc;
 use tokio::io::{ WriteHalf, AsyncWriteExt };
 use tokio::net::{ TcpStream};
 
+use rdkafka::client::ClientContext;
+use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
+use rdkafka::consumer::stream_consumer::StreamConsumer;
+use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, Rebalance};
+use rdkafka::error::KafkaResult;
+use rdkafka::message::{Headers, Message};
+use rdkafka::topic_partition_list::TopicPartitionList;
+use rdkafka::util::get_rdkafka_version;
+use tokio::stream::StreamExt;
+
+
+struct CustomContext;
+
+impl ClientContext for CustomContext {}
+
+impl ConsumerContext for CustomContext {
+    fn pre_rebalance(&self, rebalance: &Rebalance) {
+        println!("Pre rebalance {:?}", rebalance);
+    }
+
+    fn post_rebalance(&self, rebalance: &Rebalance) {
+        println!("Post rebalance {:?}", rebalance);
+    }
+
+    fn commit_callback(&self, result: KafkaResult<()>, _offsets: &TopicPartitionList) {
+        println!("Committing offsets: {:?}", result);
+    }
+}
+
+type LoggingConsumer = StreamConsumer<CustomContext>;
+
+async fn consume_and_print(brokers: &str, group_id: &str, topics: &[&str]) {
+    let context = CustomContext;
+
+    let consumer: LoggingConsumer = ClientConfig::new()
+        .set("group.id", group_id)
+        .set("bootstrap.servers", brokers)
+        .set("enable.partition.eof", "false")
+        .set("session.timeout.ms", "6000")
+        .set("enable.auto.commit", "true")
+        //.set("statistics.interval.ms", "30000")
+        //.set("auto.offset.reset", "smallest")
+        .set_log_level(RDKafkaLogLevel::Debug)
+        .create_with_context(context)
+        .expect("Consumer creation failed");
+
+    consumer.subscribe(&topics.to_vec()).expect("Can't subscribe to specified topics");
+
+    // consumer.start() returns a stream. The stream can be used ot chain together expensive steps,
+    // such as complex computations on a thread pool or asynchronous IO.
+    println!("try start");
+    let mut message_stream = consumer.start();
+
+    while let Some(message) = message_stream.next().await {
+        match message {
+            Err(e) => println!("Kafka error: {}", e),
+            Ok(m) => {
+                let payload = m.payload().unwrap();
+                let payload: Vec<u8> = payload.iter().cloned().collect();
+                println!("key: '{:?}', payload: '{:?}', topic: {}, partition: {}, offset: {}, timestamp: {:?}",
+                      m.key(), payload, m.topic(), m.partition(), m.offset(), m.timestamp());
+                if let Some(headers) = m.headers() {
+                    for i in 0..headers.count() {
+                        let header = headers.get(i).unwrap();
+                        println!("  Header {:#?}: {:?}", header.0, header.1);
+                    }
+                }
+                consumer.commit_message(&m, CommitMode::Async).unwrap();
+            }
+        };
+    }
+}
+
 use game::*;
 
 async fn send_data(sender: &mut Sender<Vec<u8>>, user_id: &i64, data: Vec<u8>) {
@@ -35,13 +108,18 @@ async fn main() {
     let (req_tx, mut req_rx)= channel::<Vec<u8>>(4096);
     let (mut rsp_tx, mut rsp_rx)= channel::<Vec<u8>>(4096);
     let req_tx_copy = req_tx.clone();
-    let mut room_mng = GameRoomMng::new(3);
     let redis_addr = "redis://127.0.0.1:6379/".to_string();
     let redis_uri = redis_addr.clone();
-    let t1 = thread::spawn(move || {
+    let broker_port = "127.0.0.1:9092";
+    static topic: &[&str] = &["test", "test2"];
+    let group_id = "test-group";
+
+    let client_thread = thread::spawn(move || {
+        let listen_addr = "0.0.0.0:8890".to_string();
         let writefd: Arc<Mutex<HashMap<i64, WriteHalf<TcpStream>>>> = Arc::new(Mutex::new(HashMap::new()));
         let writefd_copy = writefd.clone();
         let mut rt =  Runtime::new().unwrap();
+        
         rt.spawn(async move {
             const AUTHORIZED_INFO_SIZE: usize = 8;
             loop {
@@ -63,10 +141,12 @@ async fn main() {
                 }
             }
         });
-        rt.block_on(server_net::server_run("0.0.0.0:8890".to_string(), redis_uri, req_tx, writefd.clone()));
+        rt.spawn(consume_and_print(&broker_port, &group_id, topic));
+        rt.block_on(server_net::server_run(listen_addr, redis_uri, req_tx, writefd.clone()));
     });
     
     tokio::spawn(async move {
+        let mut room_mng = GameRoomMng::new(3, redis_addr);
         let header_size = mem::size_of::<Header>();
         loop {
             let msg = req_rx.recv().await.unwrap();
@@ -203,5 +283,6 @@ async fn main() {
             }
         }
     });
-    t1.join().unwrap();
+
+    client_thread.join().unwrap();
 }

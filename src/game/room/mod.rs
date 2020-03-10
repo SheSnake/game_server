@@ -1,11 +1,12 @@
 extern crate rand;
 extern crate tokio;
+extern crate redis;
 use rand::{ thread_rng };
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use super::super::server_net::message::*;
-use std::mem;
 use tokio::sync::mpsc::{ Sender };
+use redis::AsyncCommands;
 
 pub enum RoomType {
     MAJIANG = 1,
@@ -21,16 +22,22 @@ pub struct GameRoom {
 }
 
 pub struct GameRoomMng {
+    redis_uri: String,
+    room_topic: HashMap<String, String>,
     letters: Vec<char>,
     act_rooms: HashMap<String, GameRoom>,
     user_rooms: HashMap<i64, String>,
     start_game: HashMap<String, Sender<Vec<u8>>>,
     max_room_num: usize,
+    redis_client: redis::Client,
 }
 
 impl GameRoomMng {
-    pub fn new(max_room_num: usize) -> GameRoomMng {
+    pub fn new(max_room_num: usize, redis_uri: String) -> GameRoomMng {
         return GameRoomMng {
+            redis_uri: redis_uri.clone(),
+            redis_client: redis::Client::open(redis_uri.clone()).unwrap(),
+            room_topic: HashMap::new(),
             letters: "QAZWSXEDCRFVTGB1234567890".to_string().chars().collect(),
             act_rooms: HashMap::new(),
             user_rooms: HashMap::new(),
@@ -48,6 +55,9 @@ impl GameRoomMng {
             }
         }
         return room_id;
+    }
+
+    pub async fn get_room_topic(&self, room_id: &String) -> Option<String> {
     }
 
     pub fn create_room(&mut self, user_id: i64) -> (String, Code) {
