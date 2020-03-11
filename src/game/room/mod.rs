@@ -25,6 +25,7 @@ pub struct GameRoomMng {
     redis_uri: String,
     room_topic: HashMap<String, String>,
     letters: Vec<char>,
+    topic_list_key: String,
     act_rooms: HashMap<String, GameRoom>,
     user_rooms: HashMap<i64, String>,
     start_game: HashMap<String, Sender<Vec<u8>>>,
@@ -37,6 +38,7 @@ impl GameRoomMng {
         return GameRoomMng {
             redis_uri: redis_uri.clone(),
             redis_client: redis::Client::open(redis_uri.clone()).unwrap(),
+            topic_list_key: "topiclist:".to_string(),
             room_topic: HashMap::new(),
             letters: "QAZWSXEDCRFVTGB1234567890".to_string().chars().collect(),
             act_rooms: HashMap::new(),
@@ -57,7 +59,40 @@ impl GameRoomMng {
         return room_id;
     }
 
-    pub async fn get_room_topic(&self, room_id: &String) -> Option<String> {
+    pub async fn get_room_topic(&mut self, room_id: &String) -> Option<String> {
+        if let Some(v) = self.room_topic.get(room_id) {
+            return Some(v.clone());
+        }
+        let mut conn = self.redis_client.get_async_connection().await.unwrap();
+        let key = format!("topic_name:{}:", room_id);
+        match conn.get(key).await {
+            Ok(v) => {
+                let topic: String = redis::from_redis_value::<String>(&v).unwrap();
+                println!("get topic:{} of room_id:{}", room_id, topic);
+                self.room_topic.insert(room_id.to_string(), topic.to_string());
+                return Some(topic);
+            },
+            Err(err) => {
+                println!("redis get err: {}", err);
+                return None;
+            }
+        }
+        return None;
+    }
+
+    pub async fn get_free_room_topic(&mut self) -> Option<String> {
+        let mut conn = self.redis_client.get_async_connection().await.unwrap();
+        match conn.zrange(self.topic_list_key.clone(), 0, 0).await {
+            Ok(v) => {
+                let v: Vec<String> = v;
+                println!("get free topic:{:?}", &v);
+                return Some(v[0].clone());
+            },
+            Err(err) => {
+                println!("redis get err: {}", err);
+                return None;
+            }
+        }
     }
 
     pub fn create_room(&mut self, user_id: i64) -> (String, Code) {

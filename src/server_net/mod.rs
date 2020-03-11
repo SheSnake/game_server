@@ -25,6 +25,9 @@ use futures::*;
 pub mod message;
 use message::*;
 
+pub mod kafka_client;
+use kafka_client::*;
+
 pub struct ClientSession {
     pub fd: ReadHalf<TcpStream>,
     pub buf: [u8; 4096],
@@ -131,7 +134,7 @@ pub async fn server_run(bind_addr: String, redis_addr: String, sender: Sender<Ve
             let mut read_len = 0;
             let brokers = "127.0.0.1:9092";
             let topic_names = "test";
-            produce(&brokers, &topic_names).await;
+            //produce(&brokers, &topic_names).await;
             while read_len < AUTHORIZED_SIZE {
                 let process = readfd.read(&mut buf[read_len..AUTHORIZED_SIZE]);
                 match timeout(Duration::from_millis(5000), process).await {
@@ -236,7 +239,6 @@ pub async fn server_run(bind_addr: String, redis_addr: String, sender: Sender<Ve
                                             let a: &[u8] = &session.buf[session.cur_head..session.cur_head + header.len as usize];
                                             let msg: Vec<u8> = a.iter().cloned().collect();
                                             let msg = [user_id.clone(), msg].concat();
-                                            println!("send msg {:?}", msg);
                                             match sender.send(msg).await {
                                                 Ok(()) => {},
                                                 Err(_) => {
