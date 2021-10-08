@@ -82,6 +82,7 @@ pub async fn server_run(bind_addr: String, sender: Sender<Vec<u8>>, writefd_map:
             const AUTHORIZED_SIZE: usize = 128;
             let mut buf = [0u8; AUTHORIZED_SIZE];
             let mut read_len = 0;
+            println!("new connection");
             while read_len < AUTHORIZED_SIZE {
                 let process = readfd.read(&mut buf[read_len..AUTHORIZED_SIZE]);
                 match timeout(Duration::from_millis(5000), process).await {
