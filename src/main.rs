@@ -36,6 +36,8 @@ async fn main() {
     let (mut rsp_tx, mut rsp_rx)= channel::<Vec<u8>>(4096);
     let req_tx_copy = req_tx.clone();
     let mut room_mng = GameRoomMng::new(3);
+    let redis_addr = "redis://127.0.0.1:6379/".to_string();
+    let redis_uri = redis_addr.clone();
     let t1 = thread::spawn(move || {
         let writefd: Arc<Mutex<HashMap<i64, WriteHalf<TcpStream>>>> = Arc::new(Mutex::new(HashMap::new()));
         let writefd_copy = writefd.clone();
@@ -61,7 +63,7 @@ async fn main() {
                 }
             }
         });
-        rt.block_on(server_net::server_run("0.0.0.0:8890".to_string(), req_tx, writefd.clone()));
+        rt.block_on(server_net::server_run("0.0.0.0:8890".to_string(), redis_uri, req_tx, writefd.clone()));
     });
     
     tokio::spawn(async move {

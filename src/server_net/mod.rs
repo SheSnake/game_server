@@ -4,6 +4,7 @@ extern crate serde;
 extern crate serde_bytes;
 extern crate bincode;
 extern crate chrono;
+extern crate redis;
 use std::mem;
 use std::sync::{Arc};
 use std::time::Duration;
@@ -14,6 +15,7 @@ use tokio::io::{ WriteHalf, ReadHalf };
 use tokio::prelude::*;
 use tokio::time::timeout;
 use std::collections::HashMap;
+use redis::AsyncCommands;
 
 pub mod message;
 use message::*;
@@ -57,25 +59,30 @@ impl ClientSession {
     }
 }
 
-pub fn get_userinfo_by_session_id(session_id: String) -> Option<i64> {
+pub async fn get_userinfo_by_session_id(redis_uri: &String, session_id: String) -> Option<i64> {
     let mut sessions: HashMap<String, i64> = HashMap::new();
-    sessions.insert(String::from_utf8(vec![0; 128]).unwrap(), 0);
-    sessions.insert(String::from_utf8(vec![1; 128]).unwrap(), 1);
-    sessions.insert(String::from_utf8(vec![2; 128]).unwrap(), 2);
-    sessions.insert(String::from_utf8(vec![3; 128]).unwrap(), 3);
-    if let Some(&user_id) = sessions.get(&session_id) {
-        return Some(user_id);
+    let client = redis::Client::open(redis_uri.clone()).unwrap();
+    let mut conn = client.get_async_connection().await.unwrap();
+    match conn.get(session_id).await {
+        Ok(v) => {
+            println!("get auther_info:{}", &v);
+            return Some(v);
+        },
+        Err(err) => {
+            println!("redis get err: {}", err);
+            return None;
+        }
     }
-    return None;
 }
 
-pub async fn server_run(bind_addr: String, sender: Sender<Vec<u8>>, writefd_map: Arc<Mutex<HashMap<i64, WriteHalf<TcpStream>>>>) {
+pub async fn server_run(bind_addr: String, redis_addr: String, sender: Sender<Vec<u8>>, writefd_map: Arc<Mutex<HashMap<i64, WriteHalf<TcpStream>>>>) {
     let mut listener = TcpListener::bind(bind_addr).await.unwrap();
     loop {
         let (socket, _) = listener.accept().await.unwrap();
         let mut sender = sender.clone();
         let writefd_map = writefd_map.clone();
         let (mut readfd,  mut writefd) = tokio::io::split(socket);
+        let redis_uri = redis_addr.clone();
         tokio::spawn(async move {
             let mut authorized = false;
             let mut user_id: i64 = -1;
@@ -110,7 +117,7 @@ pub async fn server_run(bind_addr: String, sender: Sender<Vec<u8>>, writefd_map:
 
             if read_len == AUTHORIZED_SIZE {
                 let session_id = String::from_utf8(buf.iter().cloned().collect()).unwrap();
-                if let Some(user_info) = get_userinfo_by_session_id(session_id) {
+                if let Some(user_info) = get_userinfo_by_session_id(&redis_uri, session_id).await {
                     user_id = user_info;
                     authorized = true;
                 }
